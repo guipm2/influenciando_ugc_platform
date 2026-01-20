@@ -186,7 +186,10 @@ const EnhancedProjectDashboard: React.FC = () => {
           priority,
           estimated_hours,
           created_at,
-          updated_at
+          updated_at,
+          time_entries (
+            hours
+          )
         `)
         .eq('analyst_id', user.id);
 
@@ -196,16 +199,16 @@ const EnhancedProjectDashboard: React.FC = () => {
       }
 
       // Fetch conversations for last message activity
-      const opportunityIds = (projectsData || []).map(p => {
-        const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
-        return opportunity.id;
-      });
+      // const opportunityIds = (projectsData || []).map(p => {
+      //   const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
+      //   return opportunity.id;
+      // });
 
-      const { data: conversationsData } = await supabase
-        .from('conversations')
-        .select('opportunity_id, last_message_at')
-        .in('opportunity_id', opportunityIds)
-        .eq('analyst_id', user.id);
+      // const { data: conversationsData } = await supabase
+      //   .from('conversations')
+      //   .select('opportunity_id, last_message_at')
+      //   .in('opportunity_id', opportunityIds)
+      //   .eq('analyst_id', user.id);
 
       // Process projects with deliverables
       const projectsWithDeliverables = (projectsData || []).map(project => {
@@ -279,7 +282,12 @@ const EnhancedProjectDashboard: React.FC = () => {
           last_activity: lastActivity,
           duration,
           estimated_hours: projectDeliverables.reduce((sum, d) => sum + (d.estimated_hours || 0), 0),
-          spent_hours: 0 // TODO: Implement time tracking
+          spent_hours: projectDeliverables.reduce((total, d) => {
+            // @ts-expect-error - time_entries comes from join but is not in the type definition yet
+            const entries: { hours: number }[] = d.time_entries || [];
+            const hours = entries.reduce((sum: number, entry) => sum + (entry.hours || 0), 0);
+            return total + hours;
+          }, 0)
         };
       });
 
@@ -316,62 +324,6 @@ const EnhancedProjectDashboard: React.FC = () => {
         new Date(d.created_at) >= thisMonthStart
       ).length;
 
-      // Calculate content type statistics and duration
-      const contentTypes = new Map();
-      let totalGlobalDuration = 0;
-      let completedGlobalProjects = 0;
-
-      projectsWithDeliverables.forEach(project => {
-        const type = project.content_type;
-        if (!contentTypes.has(type)) {
-          contentTypes.set(type, {
-            content_type: type,
-            count: 0,
-            total_budget: 0,
-            completed: 0,
-            total_duration: 0,
-            completed_with_duration: 0
-          });
-        }
-        const stats = contentTypes.get(type);
-        stats.count++;
-        stats.total_budget += project.budget_max;
-
-        if (project.status === 'completed') {
-          stats.completed++;
-
-          // Calculate duration
-          const projectDeliverables = (deliverablesData || []).filter(d => d.application_id === project.id);
-          const completionDates = projectDeliverables
-            .map(d => d.reviewed_at || d.updated_at)
-            .filter(Boolean)
-            .map(d => new Date(d!).getTime());
-
-          if (completionDates.length > 0) {
-            const completionTime = Math.max(...completionDates);
-            const startTime = new Date(project.created_at).getTime();
-            const durationDays = (completionTime - startTime) / (1000 * 60 * 60 * 24);
-
-            if (durationDays >= 0) {
-              stats.total_duration += durationDays;
-              stats.completed_with_duration++;
-
-              totalGlobalDuration += durationDays;
-              completedGlobalProjects++;
-            }
-          }
-        }
-      });
-
-      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
-        content_type: stat.content_type,
-        count: stat.count,
-        avg_budget: stat.total_budget / stat.count,
-        completion_rate: (stat.completed / stat.count) * 100,
-        avg_duration: stat.completed_with_duration > 0
-          ? Math.round(stat.total_duration / stat.completed_with_duration)
-          : 0
-      }));
 
       setStats({
         totalProjects: projectsWithDeliverables.length,
@@ -873,6 +825,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                       <div className="flex items-center text-sm text-gray-600">
                         <DollarSign className="h-4 w-4 mr-2" />
                         R$ {(project.budget_min / 1000).toFixed(0)}k - R$ {(project.budget_max / 1000).toFixed(0)}k
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Clock className="h-4 w-4 mr-2" />
+                        Horas: {project.spent_hours?.toFixed(1) || '0.0'} / {project.estimated_hours?.toFixed(1) || '0.0'}h
                       </div>
                       <div className="flex items-center text-sm text-gray-500">
                         <Activity className="h-4 w-4 mr-2" />
