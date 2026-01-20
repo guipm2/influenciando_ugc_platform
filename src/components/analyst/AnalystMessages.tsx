@@ -62,6 +62,27 @@ interface Message {
   project_title?: string; // For display purposes
 }
 
+interface ConversationQueryResult {
+  id: string;
+  analyst_id: string;
+  creator_id: string;
+  created_at: string;
+  last_message_at: string;
+  custom_title: string | null;
+  tags: string[] | null;
+  creator: {
+    name: string;
+    email: string;
+  };
+  messages: {
+    content: string;
+    sender_type: 'analyst' | 'creator';
+    created_at: string;
+    message_type: 'general' | 'project' | 'system';
+    project_context?: string;
+  }[];
+}
+
 interface AnalystMessagesProps {
   selectedConversationId?: string | null;
   onBackToList?: () => void;
@@ -116,9 +137,9 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           )
         `)
         .eq('analyst_id', analyst.id)
-        .order('last_message_at', { ascending: false })
         .order('created_at', { foreignTable: 'messages', ascending: false })
-        .limit(1, { foreignTable: 'messages' });
+        .limit(1, { foreignTable: 'messages' })
+        .order('last_message_at', { ascending: false });
 
       if (convError) {
         console.error('Erro ao buscar conversas:', convError);
@@ -129,10 +150,10 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
       const creatorConversations = new Map<string, UnifiedConversationWithCandidate>();
       const allConversationsByCreator = new Map<string, string[]>();
       
-      for (const conv of conversationData || []) {
-        // Extract the last message from this conversation if available
-        // Cast to unknown first to safely access the joined property
-        const lastMsg = ((conv as unknown) as { messages: MessageCandidate[] }).messages?.[0];
+      const typedConversationData = (conversationData || []) as unknown as ConversationQueryResult[];
+
+      for (const conv of typedConversationData) {
+        const lastMessage = conv.messages?.[0];
 
         if (!creatorConversations.has(conv.creator_id)) {
           creatorConversations.set(conv.creator_id, {
@@ -146,7 +167,7 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             unread_count: 0,
             custom_title: conv.custom_title,
             tags: conv.tags,
-            lastMessageCandidate: lastMsg
+            lastMessage: lastMessage
           });
           allConversationsByCreator.set(conv.creator_id, []);
         } else {
@@ -154,11 +175,20 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           const existing = creatorConversations.get(conv.creator_id)!;
           const existingDate = existing.last_message_at ? new Date(existing.last_message_at) : null;
           const currentDate = conv.last_message_at ? new Date(conv.last_message_at) : null;
+
           if (currentDate && (!existingDate || currentDate > existingDate)) {
             existing.id = conv.id;
             existing.last_message_at = conv.last_message_at;
             existing.custom_title = conv.custom_title;
             existing.tags = conv.tags;
+            existing.messages = conv.messages;
+          }
+
+          // Update lastMessage if the one from this conversation is more recent
+          if (lastMessage) {
+            if (!existing.lastMessage || new Date(lastMessage.created_at) > new Date(existing.lastMessage.created_at)) {
+              existing.lastMessage = lastMessage;
+            }
           }
 
           // Update last message if the current conversation's message is newer
@@ -231,23 +261,17 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             })
             .filter((p): p is NonNullable<typeof p> => p !== null);
 
-          // Get conversation IDs for this creator (already collected above)
-          const conversationIds = allConversationsByCreator.get(conv.creator_id) || [];
-
-          // Get last message from the candidate stored in Step 2
-          const lastMessage = conv.lastMessageCandidate;
-
-          // Remove lastMessageCandidate from the spread object
-          const { lastMessageCandidate, ...restConv } = conv;
+          // Get last message across all conversations with this creator
+          const lastMessage = conv.lastMessage;
 
           return {
-            ...restConv,
+            ...cleanConv,
             projects: formattedProjects,
-            lastMessage: lastMessage ? {
-              content: lastMessage.content,
-              sender_type: lastMessage.sender_type,
-              created_at: lastMessage.created_at,
-              project_context: lastMessage.project_context
+            lastMessage: lastMessageData ? {
+              content: lastMessageData.content,
+              sender_type: lastMessageData.sender_type,
+              created_at: lastMessageData.created_at,
+              project_context: lastMessageData.project_context
             } : undefined,
             custom_title: conv.custom_title || null,
             tags: (conv.tags || []) as string[]
