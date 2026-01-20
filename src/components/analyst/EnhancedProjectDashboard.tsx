@@ -203,7 +203,7 @@ const EnhancedProjectDashboard: React.FC = () => {
 
       const { data: conversationsData } = await supabase
         .from('conversations')
-        .select('opportunity_id, last_message_at')
+        .select('opportunity_id, creator_id, last_message_at')
         .in('opportunity_id', opportunityIds)
         .eq('analyst_id', user.id);
 
@@ -232,28 +232,46 @@ const EnhancedProjectDashboard: React.FC = () => {
         else if (isOverdue) status = 'overdue';
         else if (isAtRisk) status = 'at_risk';
 
-        // Calculate last activity and duration
-        let lastActivity = project.applied_at;
+        // Calculate last activity
+        const timestamps = [
+          new Date(project.applied_at).getTime(),
+          project.updated_at ? new Date(project.updated_at).getTime() : 0
+        ];
+
+        // Add deliverable updates
+        if (projectDeliverables.length > 0) {
+          projectDeliverables.forEach(d => {
+            timestamps.push(new Date(d.updated_at || d.created_at).getTime());
+          });
+        }
+
+        // Add conversation activity
+        // Note: conversations are identified by opportunity_id + creator_id
+        const conversation = (conversationsData || []).find(c =>
+          c.opportunity_id === opportunity.id &&
+          c.creator_id === project.creator_id
+        );
+
+        if (conversation?.last_message_at) {
+          timestamps.push(new Date(conversation.last_message_at).getTime());
+        }
+
+        const lastActivity = new Date(Math.max(...timestamps)).toISOString();
+
+        // Calculate duration
         let duration: number | undefined;
 
-        if (projectDeliverables.length > 0) {
-          const dates = projectDeliverables.map(d => new Date(d.updated_at || d.created_at).getTime());
-          const maxDate = Math.max(...dates);
-          lastActivity = new Date(maxDate).toISOString();
+        if (status === 'completed' && projectDeliverables.length > 0) {
+          const approvedDates = projectDeliverables
+            .filter(d => d.status === 'approved')
+            .map(d => new Date(d.updated_at || d.created_at).getTime());
 
-          // Calculate duration if completed
-          if (status === 'completed') {
-            const approvedDates = projectDeliverables
-              .filter(d => d.status === 'approved')
-              .map(d => new Date(d.updated_at || d.created_at).getTime());
-
-            if (approvedDates.length > 0) {
-              const maxApprovedDate = Math.max(...approvedDates);
-              const durationMs = maxApprovedDate - new Date(project.applied_at).getTime();
-              const durationDays = durationMs / (1000 * 60 * 60 * 24);
-              if (durationDays >= 0) {
-                duration = durationDays;
-              }
+          if (approvedDates.length > 0) {
+            const maxApprovedDate = Math.max(...approvedDates);
+            const durationMs = maxApprovedDate - new Date(project.applied_at).getTime();
+            const durationDays = durationMs / (1000 * 60 * 60 * 24);
+            if (durationDays >= 0) {
+              duration = durationDays;
             }
           }
         }
@@ -315,63 +333,6 @@ const EnhancedProjectDashboard: React.FC = () => {
       const thisMonthDeliverables = (deliverablesData || []).filter(d => 
         new Date(d.created_at) >= thisMonthStart
       ).length;
-
-      // Calculate content type statistics and duration
-      const contentTypes = new Map();
-      let totalGlobalDuration = 0;
-      let completedGlobalProjects = 0;
-
-      projectsWithDeliverables.forEach(project => {
-        const type = project.content_type;
-        if (!contentTypes.has(type)) {
-          contentTypes.set(type, {
-            content_type: type,
-            count: 0,
-            total_budget: 0,
-            completed: 0,
-            total_duration: 0,
-            completed_with_duration: 0
-          });
-        }
-        const stats = contentTypes.get(type);
-        stats.count++;
-        stats.total_budget += project.budget_max;
-
-        if (project.status === 'completed') {
-          stats.completed++;
-
-          // Calculate duration
-          const projectDeliverables = (deliverablesData || []).filter(d => d.application_id === project.id);
-          const completionDates = projectDeliverables
-            .map(d => d.reviewed_at || d.updated_at)
-            .filter(Boolean)
-            .map(d => new Date(d!).getTime());
-
-          if (completionDates.length > 0) {
-            const completionTime = Math.max(...completionDates);
-            const startTime = new Date(project.created_at).getTime();
-            const durationDays = (completionTime - startTime) / (1000 * 60 * 60 * 24);
-
-            if (durationDays >= 0) {
-              stats.total_duration += durationDays;
-              stats.completed_with_duration++;
-
-              totalGlobalDuration += durationDays;
-              completedGlobalProjects++;
-            }
-          }
-        }
-      });
-
-      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
-        content_type: stat.content_type,
-        count: stat.count,
-        avg_budget: stat.total_budget / stat.count,
-        completion_rate: (stat.completed / stat.count) * 100,
-        avg_duration: stat.completed_with_duration > 0
-          ? Math.round(stat.total_duration / stat.completed_with_duration)
-          : 0
-      }));
 
       setStats({
         totalProjects: projectsWithDeliverables.length,
