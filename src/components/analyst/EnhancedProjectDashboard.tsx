@@ -163,7 +163,8 @@ const EnhancedProjectDashboard: React.FC = () => {
           creator:profiles!creator_id(
             name,
             email
-          )
+          ),
+          project_ratings(rating)
         `)
         .eq('status', 'approved')
         .eq('opportunities.created_by', user.id)
@@ -307,6 +308,22 @@ const EnhancedProjectDashboard: React.FC = () => {
         ? Math.round(totalDuration / projectsWithDuration.length)
         : 0;
 
+      // Calculate satisfaction rate
+      const ratedProjects = projectsData?.filter(p => {
+        const pWithRatings = p as unknown as { project_ratings: { rating: number }[] | null };
+        return Array.isArray(pWithRatings.project_ratings) && pWithRatings.project_ratings.length > 0;
+      }) || [];
+
+      const totalRating = ratedProjects.reduce((sum, p) => {
+        const pWithRatings = p as unknown as { project_ratings: { rating: number }[] | null };
+        const rating = pWithRatings.project_ratings ? pWithRatings.project_ratings[0].rating : 0;
+        return sum + rating;
+      }, 0);
+
+      const creatorSatisfactionRate = ratedProjects.length > 0
+        ? Math.round((totalRating / (ratedProjects.length * 5)) * 100)
+        : 0;
+
       // This month stats
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const thisMonthProjects = projectsWithDeliverables.filter(p => 
@@ -384,7 +401,7 @@ const EnhancedProjectDashboard: React.FC = () => {
         approvedDeliverables,
         avgProjectDuration,
         onTimeCompletionRate: completedProjects > 0 ? (completedProjects / (completedProjects + overdueProjects)) * 100 : 0,
-        creatorSatisfactionRate: 95, // TODO: Implement rating system
+        creatorSatisfactionRate,
         totalProjectValue,
         avgProjectBudget,
         thisMonthProjects,
@@ -438,39 +455,6 @@ const EnhancedProjectDashboard: React.FC = () => {
       });
 
       setUpcomingDeadlines(upcomingDeadlines.sort((a, b) => a.days_until - b.days_until).slice(0, 10));
-
-      // Calculate content type statistics
-      const contentTypes = new Map();
-      projectsWithDeliverables.forEach(project => {
-        const type = project.content_type;
-        if (!contentTypes.has(type)) {
-          contentTypes.set(type, {
-            content_type: type,
-            count: 0,
-            total_budget: 0,
-            completed: 0,
-            total_duration: 0
-          });
-        }
-        const stats = contentTypes.get(type);
-        stats.count++;
-        stats.total_budget += project.budget_max;
-        if (project.status === 'completed') {
-          stats.completed++;
-
-          if (project.duration !== undefined) {
-            stats.total_duration += project.duration;
-          }
-        }
-      });
-
-      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
-        content_type: stat.content_type,
-        count: stat.count,
-        avg_budget: stat.total_budget / stat.count,
-        completion_rate: (stat.completed / stat.count) * 100,
-        avg_duration: stat.completed > 0 ? Math.round(stat.total_duration / stat.completed) : 0
-      }));
 
       setContentTypeStats(contentTypeStatsArray);
 

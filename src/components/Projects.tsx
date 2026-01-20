@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Folder, Calendar, Upload, MessageCircle, CheckCircle, Clock, AlertCircle, FileText, X, Grid3X3, List, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Folder, Calendar, Upload, MessageCircle, CheckCircle, Clock, AlertCircle, FileText, X, Grid3X3, List, Eye, EyeOff, Star } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useTabVisibility } from '../hooks/useTabVisibility';
@@ -7,6 +7,7 @@ import ProjectInfo from './ProjectInfo';
 import { router } from '../utils/router';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import ModalPortal from './common/ModalPortal';
+import RatingModal from './common/RatingModal';
 
 // Helper function to navigate to project
 const navigateToProject = (projectId: string) => {
@@ -21,6 +22,7 @@ interface Project {
   description: string;
   deadline: string;
   status: 'em_andamento' | 'entregue' | 'aprovado' | 'atrasado';
+  db_status?: string;
   content_type: string;
   budget: string;
   conversation_id: string;
@@ -29,6 +31,10 @@ interface Project {
   opportunity?: {
     company_link?: string;
     briefing?: string;
+  };
+  rating?: {
+    rating: number;
+    feedback?: string;
   };
 }
 
@@ -176,6 +182,8 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
   const [showUploadModal, setShowUploadModal] = useState<string | null>(null);
   const [uploadFiles, setUploadFiles] = useState<FileList | null>(null);
   const [uploadingDeliverableId, setUploadingDeliverableId] = useState<string | null>(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     if (typeof window === 'undefined') {
       return 'grid';
@@ -268,7 +276,8 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
             company_link,
             briefing,
             created_at
-          )
+          ),
+          project_ratings(rating, feedback)
         `)
         .eq('creator_id', user.id)
         .eq('status', 'approved');
@@ -314,6 +323,12 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
         // Mapear deliverables vindos do banco para a interface local
         const mappedDbDeliverables: Deliverable[] = (dbDeliverables ?? []).map(mapDeliverableFromDb);
 
+        // Extract rating if exists
+        const appWithRatings = app as unknown as { project_ratings: { rating: number; feedback: string }[] | null };
+        const rating = Array.isArray(appWithRatings.project_ratings) && appWithRatings.project_ratings.length > 0
+          ? appWithRatings.project_ratings[0]
+          : null;
+
         // Só gerar deliverables padrão caso ainda não exista nenhum cadastrado no banco
         const fallbackDeliverables = mappedDbDeliverables.length === 0
           ? generateDeliverables(opportunity.content_type, app.id)
@@ -344,6 +359,7 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
           description: opportunity.description,
           deadline: opportunity.deadline,
           status: getProjectStatus(opportunity.deadline, allDeliverables),
+          db_status: app.status,
           content_type: opportunity.content_type,
           budget: `R$ ${opportunity.budget?.toFixed(2) || '0.00'}`,
           conversation_id: conversation?.id || '',
@@ -352,7 +368,11 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
           opportunity: {
             company_link: opportunity.company_link,
             briefing: opportunity.briefing
-          }
+          },
+          rating: rating ? {
+            rating: rating.rating,
+            feedback: rating.feedback
+          } : undefined
         });
       }
 
@@ -620,6 +640,39 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
     return true;
   });
 
+  const handleRateProject = async (rating: number, feedback: string) => {
+    if (!selectedProject || !user) return;
+
+    setIsSubmittingRating(true);
+    try {
+      const { error } = await supabase
+        .from('project_ratings')
+        .insert({
+          application_id: selectedProject.id,
+          rating,
+          feedback
+        });
+
+      if (error) throw error;
+
+      // Update local state
+      const updatedProject = {
+        ...selectedProject,
+        rating: { rating, feedback }
+      };
+
+      setSelectedProject(updatedProject);
+      setProjects(prev => prev.map(p => p.id === selectedProject.id ? updatedProject : p));
+
+      setShowRatingModal(false);
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      alert('Erro ao enviar avaliação. Tente novamente.');
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-8">
@@ -679,6 +732,25 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
                 <MessageCircle className="h-4 w-4" />
                 Conversar com analista
               </button>
+
+              {(selectedProject.status === 'aprovado' || selectedProject.db_status === 'approved') && (
+                selectedProject.rating ? (
+                  <div className="flex items-center gap-1 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                    <span className="text-sm font-medium text-yellow-200">
+                      {selectedProject.rating.rating}/5
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowRatingModal(true)}
+                    className="btn-ghost-glass text-sm border-yellow-500/30 text-yellow-200 hover:bg-yellow-500/10"
+                  >
+                    <Star className="h-4 w-4" />
+                    Avaliar Projeto
+                  </button>
+                )
+              )}
             </div>
           </div>
 
@@ -910,6 +982,13 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
             </div>
           </ModalPortal>
         )}
+
+        <RatingModal
+          isOpen={showRatingModal}
+          onClose={() => setShowRatingModal(false)}
+          onSubmit={handleRateProject}
+          isSubmitting={isSubmittingRating}
+        />
       </div>
     );
   }
