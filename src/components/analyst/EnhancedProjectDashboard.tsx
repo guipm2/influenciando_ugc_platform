@@ -186,7 +186,10 @@ const EnhancedProjectDashboard: React.FC = () => {
           priority,
           estimated_hours,
           created_at,
-          updated_at
+          updated_at,
+          time_entries (
+            hours
+          )
         `)
         .eq('analyst_id', user.id);
 
@@ -286,7 +289,12 @@ const EnhancedProjectDashboard: React.FC = () => {
           last_activity: lastActivity,
           duration,
           estimated_hours: projectDeliverables.reduce((sum, d) => sum + (d.estimated_hours || 0), 0),
-          spent_hours: 0 // TODO: Implement time tracking
+          spent_hours: projectDeliverables.reduce((total, d) => {
+            // @ts-expect-error - time_entries comes from join but is not in the type definition yet
+            const entries: { hours: number }[] = d.time_entries || [];
+            const hours = entries.reduce((sum: number, entry) => sum + (entry.hours || 0), 0);
+            return total + hours;
+          }, 0)
         };
       });
 
@@ -828,6 +836,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                       <div className="flex items-center text-sm text-gray-600">
                         <DollarSign className="h-4 w-4 mr-2" />
                         R$ {(project.budget_min / 1000).toFixed(0)}k - R$ {(project.budget_max / 1000).toFixed(0)}k
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Clock className="h-4 w-4 mr-2" />
+                        Horas: {project.spent_hours?.toFixed(1) || '0.0'} / {project.estimated_hours?.toFixed(1) || '0.0'}h
                       </div>
                       <div className="flex items-center text-sm text-gray-500">
                         <Activity className="h-4 w-4 mr-2" />

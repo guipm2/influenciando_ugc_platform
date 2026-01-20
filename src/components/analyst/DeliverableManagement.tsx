@@ -15,6 +15,7 @@ interface ProjectDeliverable {
   due_date: string;
   priority: number;
   status: 'pending' | 'in_progress' | 'submitted' | 'approved' | 'rejected';
+  estimated_hours?: number;
   analyst_feedback?: string;
   reviewed_at?: string;
   creator_name?: string;
@@ -44,6 +45,7 @@ interface DeliverableFormData {
   description: string;
   due_date: string;
   priority: number;
+  estimated_hours: number;
 }
 
 const DeliverableManagement: React.FC = () => {
@@ -57,7 +59,8 @@ const DeliverableManagement: React.FC = () => {
     title: '',
     description: '',
     due_date: '',
-    priority: 1
+    priority: 1,
+    estimated_hours: 0
   });
   const [filter, setFilter] = useState<'all' | 'pending' | 'overdue' | 'completed'>('all');
   const { user } = useAnalystAuth();
@@ -158,6 +161,7 @@ const DeliverableManagement: React.FC = () => {
           description: formData.description,
           due_date: formData.due_date,
           priority: formData.priority,
+          estimated_hours: formData.estimated_hours,
           status: 'pending'
         });
 
@@ -168,7 +172,7 @@ const DeliverableManagement: React.FC = () => {
       }
 
       setShowCreateModal(false);
-      setFormData({ title: '', description: '', due_date: '', priority: 1 });
+      setFormData({ title: '', description: '', due_date: '', priority: 1, estimated_hours: 0 });
       setSelectedApplication('');
       fetchDeliverables();
       // REMOVIDO: alert('Deliverable criado com sucesso!');
@@ -187,6 +191,7 @@ const DeliverableManagement: React.FC = () => {
           description: formData.description,
           due_date: formData.due_date,
           priority: formData.priority,
+          estimated_hours: formData.estimated_hours,
           updated_at: new Date().toISOString()
         })
         .eq('id', id);
@@ -198,7 +203,7 @@ const DeliverableManagement: React.FC = () => {
       }
 
       setShowEditModal(null);
-      setFormData({ title: '', description: '', due_date: '', priority: 1 });
+      setFormData({ title: '', description: '', due_date: '', priority: 1, estimated_hours: 0 });
       fetchDeliverables();
       // REMOVIDO: alert('Deliverable atualizado com sucesso!');
     } catch (error) {
@@ -356,7 +361,8 @@ const DeliverableManagement: React.FC = () => {
       title: deliverable.title,
       description: deliverable.description || '',
       due_date: deliverable.due_date,
-      priority: deliverable.priority
+      priority: deliverable.priority,
+      estimated_hours: deliverable.estimated_hours || 0
     });
     setShowEditModal(deliverable.id);
   };
@@ -602,6 +608,21 @@ const DeliverableManagement: React.FC = () => {
                       <option value={5}>Crítica</option>
                     </select>
                   </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Horas Estimadas
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={formData.estimated_hours}
+                      onChange={(e) => setFormData({ ...formData, estimated_hours: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00FF41] focus:border-transparent"
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -609,7 +630,7 @@ const DeliverableManagement: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowCreateModal(false);
-                    setFormData({ title: '', description: '', due_date: '', priority: 1 });
+                    setFormData({ title: '', description: '', due_date: '', priority: 1, estimated_hours: 0 });
                     setSelectedApplication('');
                   }}
                   className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors"
@@ -688,6 +709,21 @@ const DeliverableManagement: React.FC = () => {
                       <option value={4}>Urgente</option>
                       <option value={5}>Crítica</option>
                     </select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Horas Estimadas
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={formData.estimated_hours}
+                      onChange={(e) => setFormData({ ...formData, estimated_hours: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00FF41] focus:border-transparent"
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               </div>
