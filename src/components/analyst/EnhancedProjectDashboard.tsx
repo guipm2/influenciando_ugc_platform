@@ -182,7 +182,9 @@ const EnhancedProjectDashboard: React.FC = () => {
           status,
           priority,
           estimated_hours,
-          created_at
+          created_at,
+          reviewed_at,
+          updated_at
         `)
         .eq('analyst_id', user.id);
 
@@ -265,6 +267,63 @@ const EnhancedProjectDashboard: React.FC = () => {
         new Date(d.created_at) >= thisMonthStart
       ).length;
 
+      // Calculate content type statistics and duration
+      const contentTypes = new Map();
+      let totalGlobalDuration = 0;
+      let completedGlobalProjects = 0;
+
+      projectsWithDeliverables.forEach(project => {
+        const type = project.content_type;
+        if (!contentTypes.has(type)) {
+          contentTypes.set(type, {
+            content_type: type,
+            count: 0,
+            total_budget: 0,
+            completed: 0,
+            total_duration: 0,
+            completed_with_duration: 0
+          });
+        }
+        const stats = contentTypes.get(type);
+        stats.count++;
+        stats.total_budget += project.budget_max;
+
+        if (project.status === 'completed') {
+          stats.completed++;
+
+          // Calculate duration
+          const projectDeliverables = (deliverablesData || []).filter(d => d.application_id === project.id);
+          const completionDates = projectDeliverables
+            .map(d => d.reviewed_at || d.updated_at)
+            .filter(Boolean)
+            .map(d => new Date(d!).getTime());
+
+          if (completionDates.length > 0) {
+            const completionTime = Math.max(...completionDates);
+            const startTime = new Date(project.created_at).getTime();
+            const durationDays = (completionTime - startTime) / (1000 * 60 * 60 * 24);
+
+            if (durationDays >= 0) {
+              stats.total_duration += durationDays;
+              stats.completed_with_duration++;
+
+              totalGlobalDuration += durationDays;
+              completedGlobalProjects++;
+            }
+          }
+        }
+      });
+
+      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
+        content_type: stat.content_type,
+        count: stat.count,
+        avg_budget: stat.total_budget / stat.count,
+        completion_rate: (stat.completed / stat.count) * 100,
+        avg_duration: stat.completed_with_duration > 0
+          ? Math.round(stat.total_duration / stat.completed_with_duration)
+          : 0
+      }));
+
       setStats({
         totalProjects: projectsWithDeliverables.length,
         activeProjects,
@@ -274,7 +333,9 @@ const EnhancedProjectDashboard: React.FC = () => {
         pendingDeliverables,
         overdueDeliverables,
         approvedDeliverables,
-        avgProjectDuration: 0, // TODO: Calculate based on actual completion times
+        avgProjectDuration: completedGlobalProjects > 0
+          ? Math.round(totalGlobalDuration / completedGlobalProjects)
+          : 0,
         onTimeCompletionRate: completedProjects > 0 ? (completedProjects / (completedProjects + overdueProjects)) * 100 : 0,
         creatorSatisfactionRate: 95, // TODO: Implement rating system
         totalProjectValue,
@@ -330,35 +391,6 @@ const EnhancedProjectDashboard: React.FC = () => {
       });
 
       setUpcomingDeadlines(upcomingDeadlines.sort((a, b) => a.days_until - b.days_until).slice(0, 10));
-
-      // Calculate content type statistics
-      const contentTypes = new Map();
-      projectsWithDeliverables.forEach(project => {
-        const type = project.content_type;
-        if (!contentTypes.has(type)) {
-          contentTypes.set(type, {
-            content_type: type,
-            count: 0,
-            total_budget: 0,
-            completed: 0,
-            total_duration: 0
-          });
-        }
-        const stats = contentTypes.get(type);
-        stats.count++;
-        stats.total_budget += project.budget_max;
-        if (project.status === 'completed') {
-          stats.completed++;
-        }
-      });
-
-      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
-        content_type: stat.content_type,
-        count: stat.count,
-        avg_budget: stat.total_budget / stat.count,
-        completion_rate: (stat.completed / stat.count) * 100,
-        avg_duration: 0 // TODO: Calculate based on actual durations
-      }));
 
       setContentTypeStats(contentTypeStatsArray);
 
@@ -679,6 +711,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Taxa de conclusão:</span>
                             <span className="font-medium text-green-600">{stat.completion_rate.toFixed(1)}%</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Duração média:</span>
+                            <span className="font-medium">{stat.avg_duration} dias</span>
                           </div>
                         </div>
                       </div>
