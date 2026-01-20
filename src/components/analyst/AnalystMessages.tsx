@@ -37,6 +37,18 @@ interface UnifiedConversation {
   tags?: string[] | null;
 }
 
+interface MessageCandidate {
+  content: string;
+  sender_type: 'analyst' | 'creator';
+  created_at: string;
+  message_type: 'general' | 'project' | 'system';
+  project_context?: string;
+}
+
+interface UnifiedConversationWithCandidate extends UnifiedConversation {
+  lastMessageCandidate?: MessageCandidate;
+}
+
 interface Message {
   id: string;
   conversation_id: string;
@@ -135,8 +147,8 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
       }
 
       // Step 2: Group conversations by creator and collect all conversation IDs
-      const creatorConversations = new Map();
-      const allConversationsByCreator = new Map();
+      const creatorConversations = new Map<string, UnifiedConversationWithCandidate>();
+      const allConversationsByCreator = new Map<string, string[]>();
       
       const typedConversationData = (conversationData || []) as unknown as ConversationQueryResult[];
 
@@ -160,7 +172,7 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           allConversationsByCreator.set(conv.creator_id, []);
         } else {
           // Update last_message_at if this conversation is more recent
-          const existing = creatorConversations.get(conv.creator_id);
+          const existing = creatorConversations.get(conv.creator_id)!;
           const existingDate = existing.last_message_at ? new Date(existing.last_message_at) : null;
           const currentDate = conv.last_message_at ? new Date(conv.last_message_at) : null;
 
@@ -178,10 +190,21 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
               existing.lastMessage = lastMessage;
             }
           }
+
+          // Update last message if the current conversation's message is newer
+          const existingMsgDate = existing.lastMessageCandidate ? new Date(existing.lastMessageCandidate.created_at) : null;
+          const currentMsgDate = lastMsg ? new Date(lastMsg.created_at) : null;
+
+          if (currentMsgDate && (!existingMsgDate || currentMsgDate > existingMsgDate)) {
+             existing.lastMessageCandidate = lastMsg;
+          }
         }
         
         // Add conversation ID to the creator's list
-        allConversationsByCreator.get(conv.creator_id).push(conv.id);
+        const convs = allConversationsByCreator.get(conv.creator_id);
+        if (convs) {
+          convs.push(conv.id);
+        }
       }
 
       // Step 3: Get all projects (opportunity_applications) for each creator
@@ -195,7 +218,7 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           status,
           applied_at,
           creator_id,
-          opportunity:opportunities (
+          opportunity:opportunities!inner (
             id,
             title,
             company,
@@ -203,13 +226,11 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           )
         `)
         .in('creator_id', creatorIds)
-        .eq('status', 'approved');
+        .eq('status', 'approved')
+        .eq('opportunity.analyst_id', analyst.id);
 
-      // Filter applications where opportunity belongs to this analyst
-      const relevantApplications = (allApplications || []).filter((app) => {
-        const opp = Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity;
-        return opp && opp.analyst_id === analyst.id;
-      });
+      // Applications are already filtered by the query
+      const relevantApplications = allApplications || [];
 
       // Group applications by creator_id
       const applicationsByCreator = new Map();
