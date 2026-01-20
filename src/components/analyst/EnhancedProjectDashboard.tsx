@@ -228,9 +228,11 @@ const EnhancedProjectDashboard: React.FC = () => {
           status = 'at_risk';
         }
 
-        // Calculate last activity and duration
-        let lastActivity = project.applied_at;
-        let duration: number | undefined;
+        // Calculate last activity
+        const timestamps = [
+          new Date(project.applied_at).getTime(),
+          project.updated_at ? new Date(project.updated_at).getTime() : 0
+        ];
 
         // If project is explicitly completed in DB, use updated_at as completion time
         if (project.status === 'completed' && project.updated_at) {
