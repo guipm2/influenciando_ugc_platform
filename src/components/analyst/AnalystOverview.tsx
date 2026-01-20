@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Target, Users, TrendingUp, Eye, ArrowRight, Calendar, Folder } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
@@ -54,271 +54,167 @@ const AnalystOverview: React.FC = () => {
   const [selectedOpportunity, setSelectedOpportunity] = useState<RecentOpportunity | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true);
-        
-        // Buscar estatísticas das oportunidades
-        const { data: opportunities, error: opportunitiesError } = await supabase
+  const fetchDashboardData = useCallback(async () => {
+    if (!user) return;
+    try {
+      setLoading(true);
+
+      // Otimização: Buscar contagens diretamente usando COUNT e HEAD para evitar buscar todos os registros
+      const [
+        { count: activeCount, error: activeError },
+        { count: completedCount, error: completedError },
+        { count: totalCount, error: totalError },
+        { count: appsCount, error: appsError }
+      ] = await Promise.all([
+        supabase.from('opportunities').select('*', { count: 'exact', head: true }).eq('created_by', user.id).eq('status', 'ativo'),
+        supabase.from('opportunities').select('*', { count: 'exact', head: true }).eq('created_by', user.id).eq('status', 'concluido'),
+        supabase.from('opportunities').select('*', { count: 'exact', head: true }).eq('created_by', user.id),
+        supabase.from('opportunity_applications').select('*', { count: 'exact', head: true }) // RLS filtra automaticamente para apps das oportunidades do user
+      ]);
+
+      if (activeError) console.error('Erro ao buscar contagem de ativas:', activeError);
+      if (completedError) console.error('Erro ao buscar contagem de concluídas:', completedError);
+      if (totalError) console.error('Erro ao buscar contagem total:', totalError);
+      if (appsError) console.error('Erro ao buscar contagem de candidaturas:', appsError);
+
+      setStats({
+        activeOpportunities: activeCount || 0,
+        totalOpportunities: totalCount || 0,
+        completedOpportunities: completedCount || 0,
+        totalApplications: appsCount || 0,
+      });
+
+      // Otimização: Buscar apenas as 5 oportunidades mais recentes
+      const { data: recentOpp, error: recentError } = await supabase
           .from('opportunities')
           .select('*')
-          .eq('created_by', user?.id)
-          .order('created_at', { ascending: false });
+          .eq('created_by', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
 
-        if (opportunitiesError) {
-          console.error('Erro ao buscar oportunidades:', opportunitiesError);
-          return;
-        }
+      if (recentError) {
+        console.error('Erro ao buscar oportunidades recentes:', recentError);
+      }
 
-        // Calcular estatísticas
-        const activeOpportunities = opportunities?.filter(op => op.status === 'ativo').length || 0;
-        const completedOpportunities = opportunities?.filter(op => op.status === 'concluido').length || 0;
-        const totalOpportunities = opportunities?.length || 0;
-
-        // Buscar todas as candidaturas para as oportunidades (otimização N+1)
-        const { data: allApplications, error: applicationsError } = await supabase
+      // Buscar contagens de candidatos apenas para estas 5 oportunidades
+      let recentWithCounts = recentOpp || [];
+      if (recentOpp && recentOpp.length > 0) {
+        const { data: appsForRecent, error: appsRecentError } = await supabase
           .from('opportunity_applications')
           .select('opportunity_id')
-          .in('opportunity_id', opportunities?.map(op => op.id) || []);
+          .in('opportunity_id', recentOpp.map(op => op.id));
 
-        if (applicationsError) {
-          console.error('Erro ao buscar candidaturas:', applicationsError);
+        if (!appsRecentError && appsForRecent) {
+           const counts = appsForRecent.reduce((acc, app) => {
+             acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
+             return acc;
+           }, {} as Record<string, number>);
+
+           recentWithCounts = recentOpp.map(op => ({
+             ...op,
+             candidates_count: counts[op.id] || 0
+           }));
         }
-
-        const totalApplications = allApplications?.length || 0;
-
-        setStats({
-          activeOpportunities,
-          totalOpportunities,
-          completedOpportunities,
-          totalApplications,
-        });
-
-        // Calcular contagem agrupando no cliente
-        const applicationCounts = (allApplications || []).reduce((acc, app) => {
-          acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
-
-        const opportunitiesWithCandidatesCount = (opportunities || []).map((opp) => ({
-          ...opp,
-          candidates_count: applicationCounts[opp.id] || 0
-        }));
-
-        // Pegar as 5 oportunidades mais recentes com contagem atualizada
-        setRecentOpportunities(opportunitiesWithCandidatesCount.slice(0, 5));
-
-      } catch (error) {
-        console.error('Erro ao buscar dados do dashboard:', error);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    const fetchUpcomingProjects = async () => {
-      try {
-        setLoadingProjects(true);
-        
-        // Buscar projetos aprovados (candidaturas aprovadas) com prazos próximos
-        const thirtyDaysFromNow = new Date();
-        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-        
-        // Primeiro, buscar as oportunidades do analista com deadline próximo
-        const { data: opportunities, error: opportunitiesError } = await supabase
-          .from('opportunities')
-          .select(`
-            id,
-            title,
-            company,
-            deadline,
-            created_by
-          `)
-          .eq('created_by', user?.id)
-          .gte('deadline', new Date().toISOString().split('T')[0])
-          .lte('deadline', thirtyDaysFromNow.toISOString().split('T')[0])
-          .order('deadline', { ascending: true })
-          .limit(10); // Buscar mais para filtrar depois
+      setRecentOpportunities(recentWithCounts);
 
-        if (opportunitiesError) {
-          console.error('Erro ao buscar oportunidades:', opportunitiesError);
-          return;
-        }
+    } catch (error) {
+      console.error('Erro ao buscar dados do dashboard:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
-        if (!opportunities || opportunities.length === 0) {
-          setUpcomingProjects([]);
-          return;
-        }
+  const fetchUpcomingProjects = useCallback(async () => {
+    if (!user) return;
+    try {
+      setLoadingProjects(true);
 
-        // Depois, buscar as applications aprovadas para essas oportunidades
-        const { data: applications, error: applicationsError } = await supabase
-          .from('opportunity_applications')
-          .select(`
-            id,
-            opportunity_id,
-            creator:profiles!creator_id (
-              name
-            )
-          `)
-          .eq('status', 'approved')
-          .in('opportunity_id', opportunities.map(opp => opp.id));
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
-        if (applicationsError) {
-          console.error('Erro ao buscar applications:', applicationsError);
-          return;
-        }
+      const { data: opportunities, error: opportunitiesError } = await supabase
+        .from('opportunities')
+        .select(`
+          id,
+          title,
+          company,
+          deadline,
+          created_by
+        `)
+        .eq('created_by', user.id)
+        .gte('deadline', new Date().toISOString().split('T')[0])
+        .lte('deadline', thirtyDaysFromNow.toISOString().split('T')[0])
+        .order('deadline', { ascending: true })
+        .limit(10);
 
-        // Combinar os dados e pegar apenas os primeiros 3 com applications aprovadas
-        const upcomingProjectsData = opportunities
-          .map(opportunity => {
-            const application = applications?.find(app => app.opportunity_id === opportunity.id);
-            
-            if (!application) return null; // Só incluir se tiver application aprovada
-            
-            const creator = Array.isArray(application.creator) ? application.creator[0] : application.creator;
-            
-            return {
-              id: application.id,
-              title: opportunity.title || 'Projeto',
-              company: opportunity.company || 'Empresa',
-              creator_name: creator?.name || 'Creator',
-              deadline: opportunity.deadline || '',
-              status: 'active'
-            };
-          })
-          .filter(Boolean) as UpcomingProject[];
+      if (opportunitiesError) {
+        console.error('Erro ao buscar oportunidades:', opportunitiesError);
+        setUpcomingProjects([]);
+        return;
+      }
+
+      if (!opportunities || opportunities.length === 0) {
+        setUpcomingProjects([]);
+        return;
+      }
+
+      const { data: applications, error: applicationsError } = await supabase
+        .from('opportunity_applications')
+        .select(`
+          id,
+          opportunity_id,
+          creator:profiles!creator_id (
+            name
+          )
+        `)
+        .eq('status', 'approved')
+        .in('opportunity_id', opportunities.map(opp => opp.id));
+
+      if (applicationsError) {
+        console.error('Erro ao buscar applications:', applicationsError);
+        return;
+      }
+
+      const upcomingProjectsData = opportunities
+        .map(opportunity => {
+          const application = applications?.find(app => app.opportunity_id === opportunity.id);
           
-        setUpcomingProjects(upcomingProjectsData.slice(0, 3));
-      } catch (error) {
-        console.error('Erro ao buscar projetos próximos:', error);
-      } finally {
-        setLoadingProjects(false);
-      }
-    };
+          if (!application) return null;
 
+          const creator = Array.isArray(application.creator) ? application.creator[0] : application.creator;
+
+          return {
+            id: application.id,
+            title: opportunity.title || 'Projeto',
+            company: opportunity.company || 'Empresa',
+            creator_name: creator?.name || 'Creator',
+            deadline: opportunity.deadline || '',
+            status: 'active'
+          };
+        })
+        .filter(Boolean) as UpcomingProject[];
+
+      setUpcomingProjects(upcomingProjectsData.slice(0, 3));
+    } catch (error) {
+      console.error('Erro ao buscar projetos próximos:', error);
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
     if (user) {
       fetchDashboardData();
       fetchUpcomingProjects();
     }
-  }, [user]);
+  }, [user, fetchDashboardData, fetchUpcomingProjects]);
 
   // Recarregar dados quando a aba voltar a ficar visível
   useTabVisibility(() => {
     if (user) {
       console.log('🔄 [ANALYST OVERVIEW] Recarregando dados após aba voltar a ficar visível');
-      setLoading(true);
-      setLoadingProjects(true);
-      
-      const fetchDashboardData = async () => {
-        try {
-          const { data: opportunities, error: opportunitiesError } = await supabase
-            .from('opportunities')
-            .select('*')
-            .eq('created_by', user.id)
-            .order('created_at', { ascending: false });
-
-          if (opportunitiesError) {
-            console.error('Erro ao buscar oportunidades:', opportunitiesError);
-            return;
-          }
-
-          const activeOpportunities = opportunities?.filter(op => op.status === 'ativo').length || 0;
-          const completedOpportunities = opportunities?.filter(op => op.status === 'concluido').length || 0;
-
-          const { data: allApplications } = await supabase
-            .from('opportunity_applications')
-            .select('opportunity_id')
-            .in('opportunity_id', opportunities?.map(op => op.id) || []);
-
-          const totalApplications = allApplications?.length || 0;
-
-          setStats({
-            activeOpportunities,
-            totalOpportunities: opportunities?.length || 0,
-            completedOpportunities,
-            totalApplications,
-          });
-
-          const applicationCounts = (allApplications || []).reduce((acc, app) => {
-            acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-
-          const opportunitiesWithCandidatesCount = (opportunities || []).map((opp) => ({
-            ...opp,
-            candidates_count: applicationCounts[opp.id] || 0
-          }));
-
-          setRecentOpportunities(opportunitiesWithCandidatesCount.slice(0, 5));
-        } catch (error) {
-          console.error('Erro ao buscar dados do dashboard:', error);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      const fetchUpcomingProjects = async () => {
-        try {
-          const thirtyDaysFromNow = new Date();
-          thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-          
-          const { data: opportunities, error: opportunitiesError } = await supabase
-            .from('opportunities')
-            .select('id, title, company, deadline, created_by')
-            .eq('created_by', user.id)
-            .gte('deadline', new Date().toISOString().split('T')[0])
-            .lte('deadline', thirtyDaysFromNow.toISOString().split('T')[0])
-            .order('deadline', { ascending: true })
-            .limit(10);
-
-          if (opportunitiesError) {
-            console.error('Erro ao buscar oportunidades:', opportunitiesError);
-            setUpcomingProjects([]);
-            return;
-          }
-
-          if (!opportunities || opportunities.length === 0) {
-            setUpcomingProjects([]);
-            return;
-          }
-
-          const { data: applications, error: applicationsError } = await supabase
-            .from('opportunity_applications')
-            .select('*')
-            .eq('status', 'approved')
-            .in('opportunity_id', opportunities.map(opp => opp.id));
-
-          if (applicationsError) {
-            console.error('Erro ao buscar aplicações:', applicationsError);
-            setUpcomingProjects([]);
-            return;
-          }
-
-          const projectsData = (opportunities || [])
-            .map(opportunity => {
-              const application = applications?.find(app => app.opportunity_id === opportunity.id);
-              
-              if (!application) return null;
-
-              return {
-                id: opportunity.id,
-                title: opportunity.title,
-                company: opportunity.company,
-                creator_name: 'Creator',
-                deadline: opportunity.deadline,
-                status: 'Em andamento'
-              };
-            })
-            .filter(Boolean) as UpcomingProject[];
-
-          setUpcomingProjects(projectsData.slice(0, 5));
-        } catch (error) {
-          console.error('Erro ao buscar projetos:', error);
-        } finally {
-          setLoadingProjects(false);
-        }
-      };
-
       fetchDashboardData();
       fetchUpcomingProjects();
     }
