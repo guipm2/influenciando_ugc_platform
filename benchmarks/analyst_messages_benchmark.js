@@ -2,34 +2,44 @@
 const DELAY_MS = 10; // Simulated network latency per request
 
 // Mock Data
+// Analyst has conversations with 10 creators. Each creator has 2 conversations.
 const ANALYST_ID = 'analyst_1';
-const CREATOR_COUNT = 20;
+const CREATOR_COUNT = 10;
+const CONVS_PER_CREATOR = 2;
 
 const MOCK_DATA = {
-  conversations: Array.from({ length: CREATOR_COUNT }, (_, i) => ({
-    id: `conv_${i}`,
-    analyst_id: ANALYST_ID,
-    creator_id: `creator_${i}`,
-    created_at: new Date().toISOString(),
-    last_message_at: new Date().toISOString(),
-    custom_title: null,
-    tags: [],
-    creator: {
-        name: `Creator ${i}`,
-        email: `creator${i}@test.com`
-    }
-  })),
-  messages: Array.from({ length: CREATOR_COUNT * 5 }, (_, i) => ({
-    id: `msg_${i}`,
-    conversation_id: `conv_${Math.floor(i / 5)}`,
-    content: `Message ${i}`,
-    sender_type: 'creator',
-    created_at: new Date().toISOString(),
-    project_context: null
-  })),
-  opportunity_applications: [], // Simplify for this test as we focus on messages
+  conversations: [],
+  messages: [],
+  opportunity_applications: [],
   opportunities: []
 };
+
+// Populate Mock Data
+for (let i = 0; i < CREATOR_COUNT; i++) {
+  const creatorId = `creator_${i}`;
+  for (let j = 0; j < CONVS_PER_CREATOR; j++) {
+    const convId = `conv_${i}_${j}`;
+    MOCK_DATA.conversations.push({
+      id: convId,
+      analyst_id: ANALYST_ID,
+      creator_id: creatorId,
+      created_at: new Date().toISOString(),
+      last_message_at: new Date().toISOString(),
+      messages: [ // Pre-populated for the join simulation
+         { content: `Msg ${convId}`, sender_type: 'creator', created_at: new Date().toISOString() }
+      ]
+    });
+
+    // Messages for independent query
+    MOCK_DATA.messages.push({
+      id: `msg_${convId}`,
+      conversation_id: convId,
+      content: `Msg ${convId}`,
+      sender_type: 'creator',
+      created_at: new Date().toISOString()
+    });
+  }
+}
 
 // Mock Supabase Client
 const createMockSupabase = () => {
@@ -41,23 +51,35 @@ const createMockSupabase = () => {
     let filters = [];
     let limitVal = null;
     let single = false;
-    let selectString = '';
+    let selects = '*';
+    let foreignTableOrder = null;
+    let foreignTableLimit = null;
 
     const builder = {
-      select: (str) => {
-        selectString = str;
+      select: (sel) => {
+        selects = sel;
         return builder;
       },
       eq: (col, val) => {
-        // filters.push(row => row[col] === val); // Simple mock doesn't need actual filtering logic for perf count
+        filters.push(row => row[col] === val);
         return builder;
       },
       in: (col, vals) => {
+        filters.push(row => vals && vals.includes(row[col]));
         return builder;
       },
-      order: () => builder,
-      limit: (n) => {
-        limitVal = n;
+      order: (col, opts) => {
+        if (opts && opts.foreignTable) {
+           foreignTableOrder = { col, opts };
+        }
+        return builder;
+      },
+      limit: (n, opts) => {
+        if (opts && opts.foreignTable) {
+            foreignTableLimit = n;
+        } else {
+            limitVal = n;
+        }
         return builder;
       },
       single: () => {
@@ -68,17 +90,45 @@ const createMockSupabase = () => {
         single = true;
         return builder;
       },
-      neq: (col, val) => {
-        return builder;
-      },
-      returns: () => builder,
       then: async (resolve, reject) => {
         queryCount++;
         await delay();
 
-        // Very basic data return just to keep code flowing
-        let data = MOCK_DATA[table] || [];
-        resolve({ data, error: null });
+        let data = JSON.parse(JSON.stringify(MOCK_DATA[table] || [])); // Deep copy
+
+        // Simple filtering
+        for (const filter of filters) {
+          data = data.filter(filter);
+        }
+
+        // Handle Foreign Table Select (Join) simulation
+        if (selects && selects.includes('messages')) {
+            data.forEach(row => {
+               // In a real join, this would fetch from messages table.
+               // Here we assume it's pre-populated in MOCK_DATA.conversations for simplicity of mock
+               // OR we can manually attach it if table is conversations
+               if (table === 'conversations') {
+                   // Simulate the join
+                   const msgs = MOCK_DATA.messages.filter(m => m.conversation_id === row.id);
+                   row.messages = msgs;
+
+                   // Apply foreign table limit/order if present
+                   if (foreignTableLimit) {
+                       row.messages = row.messages.slice(0, foreignTableLimit);
+                   }
+               }
+            });
+        }
+
+        if (limitVal) {
+          data = data.slice(0, limitVal);
+        }
+
+        if (single) {
+           resolve({ data: data[0] || null, error: null });
+        } else {
+           resolve({ data, error: null });
+        }
       }
     };
     return builder;
@@ -92,58 +142,60 @@ const createMockSupabase = () => {
 };
 
 const supabase = createMockSupabase();
+const analyst = { id: ANALYST_ID };
 
 async function runCurrentImplementation() {
-  console.log('--- Running Current Implementation ---');
-  const start = performance.now();
+  console.log('--- Running Current Implementation (Simulation) ---');
   supabase.resetQueryCount();
+  const start = performance.now();
 
-  // Step 1: Get all conversations
+  // Step 1: Get all unique analyst-creator pairs who have conversations
   const { data: conversationData } = await supabase
     .from('conversations')
-    .select(`...`);
+    .select(`...`)
+    .eq('analyst_id', analyst.id);
 
-  // Step 2: Group (logic omitted, just simulating structure)
+  // Step 2: Group conversations by creator
   const creatorConversations = new Map();
+  const allConversationsByCreator = new Map();
+
   for (const conv of conversationData || []) {
+    if (!creatorConversations.has(conv.creator_id)) {
       creatorConversations.set(conv.creator_id, conv);
+      allConversationsByCreator.set(conv.creator_id, []);
+    }
+    allConversationsByCreator.get(conv.creator_id).push(conv.id);
   }
 
-  // Step 3: Applications (already batched in real code)
-  await supabase.from('opportunity_applications').select('...');
+  // Step 3: Get all projects (simulated as 1 query)
+  await supabase.from('opportunity_applications').select().in('creator_id', Array.from(creatorConversations.keys()));
 
-  // Step 4: The Loop with N+1
-  const unifiedConversations = await Promise.all(
+  // The N+1 Loop
+  await Promise.all(
     Array.from(creatorConversations.values()).map(async (conv) => {
-      // Get conversation IDs (mock)
-      const conversationIds = [conv.id];
-
-      // Get last message across all conversations with this creator
+      const conversationIds = allConversationsByCreator.get(conv.creator_id) || [];
       if (conversationIds.length > 0) {
-        const { data } = await supabase
+        await supabase
           .from('messages')
           .select(`...`)
           .in('conversation_id', conversationIds)
-          .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
       }
-      return conv;
     })
   );
 
   const end = performance.now();
   console.log(`Time: ${(end - start).toFixed(2)}ms`);
   console.log(`Queries: ${supabase.getQueryCount()}`);
-  return { time: end - start, queries: supabase.getQueryCount() };
 }
 
 async function runOptimizedImplementation() {
-  console.log('--- Running Optimized Implementation ---');
-  const start = performance.now();
+  console.log('--- Running Optimized Implementation (Simulation) ---');
   supabase.resetQueryCount();
+  const start = performance.now();
 
-  // Step 1: Get all conversations WITH messages embedded
+  // Step 1: Get all conversations WITH messages
   const { data: conversationData } = await supabase
     .from('conversations')
     .select(`
@@ -151,40 +203,29 @@ async function runOptimizedImplementation() {
       messages (
         content,
         sender_type,
-        created_at,
-        message_type,
-        project_context
+        created_at
       )
     `)
-    // In real implementation we add limits here, but for query counting it's 1 query
-    .order('last_message_at', { ascending: false });
+    .eq('analyst_id', analyst.id)
+    .limit(1, { foreignTable: 'messages' }); // Mock client handles this simulated join
 
-  // Step 2: Group (logic handles embedded messages)
+  // Step 2: Group conversations by creator AND process messages
   const creatorConversations = new Map();
-  for (const conv of conversationData || []) {
-      creatorConversations.set(conv.creator_id, conv);
-  }
+  // ... (processing logic in memory) ...
 
-  // Step 3: Applications (Global)
-  await supabase.from('opportunity_applications').select('...');
+  // Step 3: Get all projects (simulated as 1 query)
+  await supabase.from('opportunity_applications').select().in('creator_id', Array.from(new Set(conversationData.map(c => c.creator_id))));
 
-  // Step 4: Loop is now synchronous (no supabase calls)
-  const unifiedConversations = await Promise.all(
-    Array.from(creatorConversations.values()).map(async (conv) => {
-       // logic extracts lastMessage from conv.messages
-       return conv;
-    })
-  );
+  // NO N+1 Loop for messages!
 
   const end = performance.now();
   console.log(`Time: ${(end - start).toFixed(2)}ms`);
   console.log(`Queries: ${supabase.getQueryCount()}`);
-  return { time: end - start, queries: supabase.getQueryCount() };
 }
 
 async function main() {
   await runCurrentImplementation();
-  console.log('\n');
+  console.log('');
   await runOptimizedImplementation();
 }
 
