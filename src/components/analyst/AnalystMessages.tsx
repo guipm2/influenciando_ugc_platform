@@ -141,39 +141,60 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
       }
 
       // Step 3: Get all projects (opportunity_applications) for each creator
+      const creatorIds = Array.from(creatorConversations.keys());
+
+      const { data: allApplications } = await supabase
+        .from('opportunity_applications')
+        .select(`
+          id,
+          opportunity_id,
+          status,
+          applied_at,
+          creator_id,
+          opportunity:opportunities (
+            id,
+            title,
+            company,
+            analyst_id
+          )
+        `)
+        .in('creator_id', creatorIds)
+        .eq('status', 'approved');
+
+      // Filter applications where opportunity belongs to this analyst
+      const relevantApplications = (allApplications || []).filter((app) => {
+        const opp = Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity;
+        return opp && opp.analyst_id === analyst.id;
+      });
+
+      // Group applications by creator_id
+      const applicationsByCreator = new Map();
+      relevantApplications.forEach((app) => {
+        if (!applicationsByCreator.has(app.creator_id)) {
+          applicationsByCreator.set(app.creator_id, []);
+        }
+        applicationsByCreator.get(app.creator_id).push(app);
+      });
+
       const unifiedConversations = await Promise.all(
         Array.from(creatorConversations.values()).map(async (conv) => {
-          // Get all approved projects between this analyst and creator
-          const { data: applications } = await supabase
-            .from('opportunity_applications')
-            .select('id, opportunity_id, status, applied_at')
-            .eq('creator_id', conv.creator_id)
-            .eq('status', 'approved');
+          const creatorApps = applicationsByCreator.get(conv.creator_id) || [];
 
-          // Get opportunity details for each application
-          const projectPromises = (applications || []).map(async (app) => {
-            const { data: opportunity } = await supabase
-              .from('opportunities')
-              .select('id, title, company, analyst_id')
-              .eq('id', app.opportunity_id)
-              .eq('analyst_id', analyst.id)
-              .maybeSingle();
+          const formattedProjects = creatorApps
+            .map((app) => {
+              const opp = Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity;
+              if (!opp) return null;
 
-            if (opportunity) {
               return {
                 id: app.id,
                 opportunity_id: app.opportunity_id,
-                opportunity_title: opportunity.title,
-                opportunity_company: opportunity.company,
+                opportunity_title: opp.title,
+                opportunity_company: opp.company,
                 status: 'active' as const,
                 started_at: app.applied_at
               };
-            }
-            return null;
-          });
-
-          const projectResults = await Promise.all(projectPromises);
-          const formattedProjects = projectResults.filter(Boolean);
+            })
+            .filter((p): p is NonNullable<typeof p> => p !== null);
 
           // Get conversation IDs for this creator (already collected above)
           const conversationIds = allConversationsByCreator.get(conv.creator_id) || [];
