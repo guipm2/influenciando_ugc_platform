@@ -169,6 +169,7 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             existing.last_message_at = conv.last_message_at;
             existing.custom_title = conv.custom_title;
             existing.tags = conv.tags;
+            existing.messages = conv.messages;
           }
 
           // Update lastMessage if the one from this conversation is more recent
@@ -243,13 +244,13 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           const lastMessage = conv.lastMessage;
 
           return {
-            ...conv,
+            ...cleanConv,
             projects: formattedProjects,
-            lastMessage: lastMessage ? {
-              content: lastMessage.content,
-              sender_type: lastMessage.sender_type,
-              created_at: lastMessage.created_at,
-              project_context: lastMessage.project_context
+            lastMessage: lastMessageData ? {
+              content: lastMessageData.content,
+              sender_type: lastMessageData.sender_type,
+              created_at: lastMessageData.created_at,
+              project_context: lastMessageData.project_context
             } : undefined,
             custom_title: conv.custom_title || null,
             tags: (conv.tags || []) as string[]
