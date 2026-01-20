@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
 import { useRouter } from '../../hooks/useRouter';
 import { useTabVisibility } from '../../hooks/useTabVisibility';
+import { formatRelativeTime } from '../../utils/formatters';
 
 interface ProjectDashboardStats {
   // Project stats
@@ -147,6 +148,7 @@ const EnhancedProjectDashboard: React.FC = () => {
           creator_id,
           status,
           applied_at,
+          updated_at,
           opportunity:opportunities!inner(
             id,
             title,
@@ -192,6 +194,18 @@ const EnhancedProjectDashboard: React.FC = () => {
         console.error('Erro ao buscar deliverables:', deliverablesError);
         return;
       }
+
+      // Fetch conversations for last message activity
+      const opportunityIds = (projectsData || []).map(p => {
+        const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
+        return opportunity.id;
+      });
+
+      const { data: conversationsData } = await supabase
+        .from('conversations')
+        .select('opportunity_id, last_message_at')
+        .in('opportunity_id', opportunityIds)
+        .eq('analyst_id', user.id);
 
       // Process projects with deliverables
       const projectsWithDeliverables = (projectsData || []).map(project => {
@@ -798,6 +812,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                       <div className="flex items-center text-sm text-gray-600">
                         <DollarSign className="h-4 w-4 mr-2" />
                         R$ {(project.budget_min / 1000).toFixed(0)}k - R$ {(project.budget_max / 1000).toFixed(0)}k
+                      </div>
+                      <div className="flex items-center text-sm text-gray-500">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Atividade: {formatRelativeTime(project.last_activity)}
                       </div>
                     </div>
                     

@@ -120,3 +120,15 @@ export const normalizeCompanyLink = (raw?: string | null) => {
 
 export const isInstagramUrl = (url?: string | null) =>
   typeof url === 'string' && /instagram\.com/i.test(url);
+
+export const formatRelativeTime = (date: string | Date): string => {
+  const activityDate = new Date(date);
+  const now = new Date();
+  const diffInHours = (now.getTime() - activityDate.getTime()) / (1000 * 60 * 60);
+
+  if (diffInHours < 1) return 'Agora mesmo';
+  if (diffInHours < 24) return `Há ${Math.floor(diffInHours)}h`;
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays === 1) return 'Ontem';
+  return `Há ${diffInDays} dias`;
+};
