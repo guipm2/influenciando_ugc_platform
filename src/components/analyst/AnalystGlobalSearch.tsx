@@ -75,32 +75,32 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
           .limit(5);
 
         if (opportunities) {
-          // Calculate dynamic candidates count for each opportunity
-          const opportunitiesWithCount = await Promise.all(
-            opportunities.map(async (opp) => {
-              const { count, error: countError } = await supabase
-                .from('opportunity_applications')
-                .select('*', { count: 'exact', head: true })
-                .eq('opportunity_id', opp.id);
+          const opportunityIds = opportunities.map(opp => opp.id);
+          const applicationCounts: Record<string, number> = {};
 
-              if (countError) {
-                console.error('Erro ao buscar contagem de candidatos:', countError);
-              }
+          if (opportunityIds.length > 0) {
+            const { data: applications, error: applicationsError } = await supabase
+              .from('opportunity_applications')
+              .select('opportunity_id')
+              .in('opportunity_id', opportunityIds);
 
-              return {
-                ...opp,
-                candidates_count: count || 0
-              };
-            })
-          );
+            if (applicationsError) {
+              console.error('Erro ao buscar contagem de candidatos:', applicationsError);
+            } else if (applications) {
+              applications.forEach((app: { opportunity_id: string }) => {
+                applicationCounts[app.opportunity_id] = (applicationCounts[app.opportunity_id] || 0) + 1;
+              });
+            }
+          }
 
-          opportunitiesWithCount.forEach(opp => {
+          opportunities.forEach(opp => {
+            const count = applicationCounts[opp.id] || 0;
             searchResults.push({
               id: opp.id,
               type: 'opportunity',
               title: opp.title,
-              subtitle: `${opp.candidates_count || 0} candidatos • R$ ${opp.budget_min} - R$ ${opp.budget_max}`,
-              data: opp
+              subtitle: `${count} candidatos • R$ ${opp.budget_min} - R$ ${opp.budget_max}`,
+              data: { ...opp, candidates_count: count }
             });
           });
         }
