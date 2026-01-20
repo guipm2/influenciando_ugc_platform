@@ -195,7 +195,7 @@ const AnalystOverview: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      fetchDashboardData();
+      loadDashboardData();
       fetchUpcomingProjects();
     }
   }, [user, fetchDashboardData, fetchUpcomingProjects]);
