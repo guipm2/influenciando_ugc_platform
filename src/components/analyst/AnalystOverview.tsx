@@ -38,6 +38,10 @@ interface UpcomingProject {
   status: string;
 }
 
+interface OpportunityWithCount extends Omit<RecentOpportunity, 'candidates_count'> {
+  opportunity_applications: { count: number }[];
+}
+
 const AnalystOverview: React.FC = () => {
   const { user } = useAnalystAuth();
   const { navigate } = useRouter();
@@ -56,68 +60,49 @@ const AnalystOverview: React.FC = () => {
 
   const fetchDashboardData = useCallback(async () => {
     if (!user) return;
+
     try {
       setLoading(true);
 
-      // Otimização: Buscar contagens diretamente usando COUNT e HEAD para evitar buscar todos os registros
-      const [
-        { count: activeCount, error: activeError },
-        { count: completedCount, error: completedError },
-        { count: totalCount, error: totalError },
-        { count: appsCount, error: appsError }
-      ] = await Promise.all([
-        supabase.from('opportunities').select('*', { count: 'exact', head: true }).eq('created_by', user.id).eq('status', 'ativo'),
-        supabase.from('opportunities').select('*', { count: 'exact', head: true }).eq('created_by', user.id).eq('status', 'concluido'),
-        supabase.from('opportunities').select('*', { count: 'exact', head: true }).eq('created_by', user.id),
-        supabase.from('opportunity_applications').select('*', { count: 'exact', head: true }) // RLS filtra automaticamente para apps das oportunidades do user
-      ]);
+      // Buscar estatísticas das oportunidades com count de aplicações em uma única query (otimização)
+      const { data: opportunitiesData, error: opportunitiesError } = await supabase
+        .from('opportunities')
+        .select('*, opportunity_applications(count)')
+        .eq('created_by', user.id)
+        .order('created_at', { ascending: false });
 
-      if (activeError) console.error('Erro ao buscar contagem de ativas:', activeError);
-      if (completedError) console.error('Erro ao buscar contagem de concluídas:', completedError);
-      if (totalError) console.error('Erro ao buscar contagem total:', totalError);
-      if (appsError) console.error('Erro ao buscar contagem de candidaturas:', appsError);
+      if (opportunitiesError) {
+        console.error('Erro ao buscar oportunidades:', opportunitiesError);
+        return;
+      }
 
-      setStats({
-        activeOpportunities: activeCount || 0,
-        totalOpportunities: totalCount || 0,
-        completedOpportunities: completedCount || 0,
-        totalApplications: appsCount || 0,
+      // Mapear dados para incluir candidates_count do count agregado
+      const opportunitiesWithCandidatesCount = (opportunitiesData || []).map((opp) => {
+        const typedOpp = opp as unknown as OpportunityWithCount;
+        const { opportunity_applications, ...rest } = typedOpp;
+        return {
+          ...rest,
+          candidates_count: opportunity_applications?.[0]?.count || 0
+        };
       });
 
-      // Otimização: Buscar apenas as 5 oportunidades mais recentes
-      const { data: recentOpp, error: recentError } = await supabase
-          .from('opportunities')
-          .select('*')
-          .eq('created_by', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5);
+      // Calcular estatísticas
+      const activeOpportunities = opportunitiesWithCandidatesCount.filter(op => op.status === 'ativo').length || 0;
+      const completedOpportunities = opportunitiesWithCandidatesCount.filter(op => op.status === 'concluido').length || 0;
+      const totalOpportunities = opportunitiesWithCandidatesCount.length || 0;
 
-      if (recentError) {
-        console.error('Erro ao buscar oportunidades recentes:', recentError);
-      }
+      // Calcular total de aplicações somando os counts individuais
+      const totalApplications = opportunitiesWithCandidatesCount.reduce((sum, opp) => sum + (opp.candidates_count || 0), 0);
 
-      // Buscar contagens de candidatos apenas para estas 5 oportunidades
-      let recentWithCounts = recentOpp || [];
-      if (recentOpp && recentOpp.length > 0) {
-        const { data: appsForRecent, error: appsRecentError } = await supabase
-          .from('opportunity_applications')
-          .select('opportunity_id')
-          .in('opportunity_id', recentOpp.map(op => op.id));
+      setStats({
+        activeOpportunities,
+        totalOpportunities,
+        completedOpportunities,
+        totalApplications,
+      });
 
-        if (!appsRecentError && appsForRecent) {
-           const counts = appsForRecent.reduce((acc, app) => {
-             acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
-             return acc;
-           }, {} as Record<string, number>);
-
-           recentWithCounts = recentOpp.map(op => ({
-             ...op,
-             candidates_count: counts[op.id] || 0
-           }));
-        }
-      }
-
-      setRecentOpportunities(recentWithCounts);
+      // Pegar as 5 oportunidades mais recentes com contagem atualizada
+      setRecentOpportunities(opportunitiesWithCandidatesCount.slice(0, 5));
 
     } catch (error) {
       console.error('Erro ao buscar dados do dashboard:', error);
@@ -128,12 +113,15 @@ const AnalystOverview: React.FC = () => {
 
   const fetchUpcomingProjects = useCallback(async () => {
     if (!user) return;
+
     try {
       setLoadingProjects(true);
 
+      // Buscar projetos aprovados (candidaturas aprovadas) com prazos próximos
       const thirtyDaysFromNow = new Date();
       thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
+      // Primeiro, buscar as oportunidades do analista com deadline próximo
       const { data: opportunities, error: opportunitiesError } = await supabase
         .from('opportunities')
         .select(`
@@ -147,11 +135,10 @@ const AnalystOverview: React.FC = () => {
         .gte('deadline', new Date().toISOString().split('T')[0])
         .lte('deadline', thirtyDaysFromNow.toISOString().split('T')[0])
         .order('deadline', { ascending: true })
-        .limit(10);
+        .limit(10); // Buscar mais para filtrar depois
 
       if (opportunitiesError) {
         console.error('Erro ao buscar oportunidades:', opportunitiesError);
-        setUpcomingProjects([]);
         return;
       }
 
@@ -160,6 +147,7 @@ const AnalystOverview: React.FC = () => {
         return;
       }
 
+      // Depois, buscar as applications aprovadas para essas oportunidades
       const { data: applications, error: applicationsError } = await supabase
         .from('opportunity_applications')
         .select(`
@@ -177,11 +165,12 @@ const AnalystOverview: React.FC = () => {
         return;
       }
 
+      // Combinar os dados e pegar apenas os primeiros 3 com applications aprovadas
       const upcomingProjectsData = opportunities
         .map(opportunity => {
           const application = applications?.find(app => app.opportunity_id === opportunity.id);
           
-          if (!application) return null;
+          if (!application) return null; // Só incluir se tiver application aprovada
 
           const creator = Array.isArray(application.creator) ? application.creator[0] : application.creator;
 
@@ -206,7 +195,7 @@ const AnalystOverview: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      fetchDashboardData();
+      loadDashboardData();
       fetchUpcomingProjects();
     }
   }, [user, fetchDashboardData, fetchUpcomingProjects]);

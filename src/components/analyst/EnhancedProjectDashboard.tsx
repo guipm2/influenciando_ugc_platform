@@ -165,7 +165,7 @@ const EnhancedProjectDashboard: React.FC = () => {
             email
           )
         `)
-        .eq('status', 'approved')
+        .in('status', ['approved', 'in_progress', 'completed'])
         .eq('opportunities.created_by', user.id)
         .gte('applied_at', startDate.toISOString());
 
@@ -195,17 +195,6 @@ const EnhancedProjectDashboard: React.FC = () => {
         return;
       }
 
-      // Fetch conversations for last message activity
-      const opportunityIds = (projectsData || []).map(p => {
-        const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
-        return opportunity.id;
-      });
-
-      const { data: conversationsData } = await supabase
-        .from('conversations')
-        .select('opportunity_id, last_message_at')
-        .in('opportunity_id', opportunityIds)
-        .eq('analyst_id', user.id);
 
       // Process projects with deliverables
       const projectsWithDeliverables = (projectsData || []).map(project => {
@@ -228,21 +217,37 @@ const EnhancedProjectDashboard: React.FC = () => {
         );
         
         let status: ProjectOverview['status'] = 'active';
-        if (progress === 100) status = 'completed';
-        else if (isOverdue) status = 'overdue';
-        else if (isAtRisk) status = 'at_risk';
+
+        if (project.status === 'completed') {
+          status = 'completed';
+        } else if (progress === 100) {
+          status = 'completed';
+        } else if (isOverdue) {
+          status = 'overdue';
+        } else if (isAtRisk) {
+          status = 'at_risk';
+        }
 
         // Calculate last activity and duration
         let lastActivity = project.applied_at;
         let duration: number | undefined;
+
+        // If project is explicitly completed in DB, use updated_at as completion time
+        if (project.status === 'completed' && project.updated_at) {
+          const durationMs = new Date(project.updated_at).getTime() - new Date(project.applied_at).getTime();
+          const durationDays = durationMs / (1000 * 60 * 60 * 24);
+          if (durationDays >= 0) {
+            duration = durationDays;
+          }
+        }
 
         if (projectDeliverables.length > 0) {
           const dates = projectDeliverables.map(d => new Date(d.updated_at || d.created_at).getTime());
           const maxDate = Math.max(...dates);
           lastActivity = new Date(maxDate).toISOString();
 
-          // Calculate duration if completed
-          if (status === 'completed') {
+          // Calculate duration if completed (fallback to deliverables if not set above)
+          if (status === 'completed' && duration === undefined) {
             const approvedDates = projectDeliverables
               .filter(d => d.status === 'approved')
               .map(d => new Date(d.updated_at || d.created_at).getTime());
@@ -318,8 +323,6 @@ const EnhancedProjectDashboard: React.FC = () => {
 
       // Calculate content type statistics and duration
       const contentTypes = new Map();
-      let totalGlobalDuration = 0;
-      let completedGlobalProjects = 0;
 
       projectsWithDeliverables.forEach(project => {
         const type = project.content_type;
@@ -340,25 +343,9 @@ const EnhancedProjectDashboard: React.FC = () => {
         if (project.status === 'completed') {
           stats.completed++;
 
-          // Calculate duration
-          const projectDeliverables = (deliverablesData || []).filter(d => d.application_id === project.id);
-          const completionDates = projectDeliverables
-            .map(d => d.reviewed_at || d.updated_at)
-            .filter(Boolean)
-            .map(d => new Date(d!).getTime());
-
-          if (completionDates.length > 0) {
-            const completionTime = Math.max(...completionDates);
-            const startTime = new Date(project.created_at).getTime();
-            const durationDays = (completionTime - startTime) / (1000 * 60 * 60 * 24);
-
-            if (durationDays >= 0) {
-              stats.total_duration += durationDays;
-              stats.completed_with_duration++;
-
-              totalGlobalDuration += durationDays;
-              completedGlobalProjects++;
-            }
+          if (project.duration !== undefined) {
+            stats.total_duration += project.duration;
+            stats.completed_with_duration++;
           }
         }
       });

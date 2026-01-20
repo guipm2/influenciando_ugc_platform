@@ -125,17 +125,6 @@ export const useOpportunityImages = () => {
             throw uploadError;
           }
 
-          // Obter URL pública (válida por 1 ano = 31536000 segundos)
-          const { data: signedUrlData } = await supabase.storage
-            .from('opportunity-images')
-            .createSignedUrl(fileName, 31536000); // 1 ano
-
-          const publicUrl = signedUrlData?.signedUrl || '';
-          console.log('URL assinada gerada para imagem:', publicUrl);
-
-          // Calcular display_order (próximo número disponível)
-          const nextOrder = currentCount + index;
-
           // Atualizar progresso
           setUploadProgress(prev =>
             prev.map((p, i) =>
@@ -145,11 +134,7 @@ export const useOpportunityImages = () => {
 
           return {
             fileName,
-            data: {
-              opportunity_id: oppId,
-              image_url: publicUrl,
-              display_order: nextOrder
-            }
+            index
           };
         } catch (err) {
           console.error(`Erro ao fazer upload de ${file.name}:`, err);
@@ -168,21 +153,57 @@ export const useOpportunityImages = () => {
       });
 
       const results = await Promise.all(uploadPromises);
-      const validResults = results.filter((r): r is NonNullable<typeof r> => r !== null);
+      const successfulUploads = results.filter((r): r is NonNullable<typeof r> => r !== null);
 
-      if (validResults.length === 0) {
+      if (successfulUploads.length === 0) {
         throw new Error('Falha no upload de todas as imagens');
+      }
+
+      // Gerar URLs assinadas em lote (válidas por 1 ano = 31536000 segundos)
+      const fileNames = successfulUploads.map(r => r.fileName);
+      const { data: signedUrlsData, error: signError } = await supabase.storage
+        .from('opportunity-images')
+        .createSignedUrls(fileNames, 31536000);
+
+      if (signError) {
+        console.error('Erro ao gerar URLs assinadas:', signError);
+        // Se falhar ao assinar, limpar o storage
+        await supabase.storage
+          .from('opportunity-images')
+          .remove(fileNames);
+        throw signError;
+      }
+
+      // Mapear URLs de volta para os uploads
+      const insertData = successfulUploads.map(upload => {
+        const signedUrlObj = signedUrlsData?.find(s => s.path === upload.fileName);
+
+        if (!signedUrlObj || signedUrlObj.error) {
+          console.error(`Falha ao obter URL assinada para ${upload.fileName}:`, signedUrlObj?.error);
+          return null;
+        }
+
+        const nextOrder = currentCount + upload.index;
+
+        return {
+          opportunity_id: oppId,
+          image_url: signedUrlObj.signedUrl,
+          display_order: nextOrder
+        };
+      }).filter((d): d is NonNullable<typeof d> => d !== null);
+
+      if (insertData.length === 0) {
+        throw new Error('Falha ao preparar dados para inserção');
       }
 
       // Inserção em lote no banco de dados apenas das imagens com sucesso no upload
       const { data: dbData, error: dbError } = await supabase
         .from('opportunity_images')
-        .insert(validResults.map(r => r.data))
+        .insert(insertData)
         .select();
 
       if (dbError) {
         // Se falhar ao salvar no banco, deletar do storage as imagens que foram enviadas
-        const fileNames = validResults.map(r => r.fileName);
         await supabase.storage
           .from('opportunity-images')
           .remove(fileNames);
@@ -264,6 +285,8 @@ export const useOpportunityImages = () => {
 
     try {
       // Prepara os dados para a operação de upsert em lote
+      // PERFORMANCE: Utiliza upsert em lote para evitar N+1 atualizações (uma query por imagem)
+      // Esta abordagem reduz drasticamente o número de chamadas ao banco de dados (de N para 1)
       const updates = reorderedImages.map((img, index) => ({
         id: img.id,
         opportunity_id: img.opportunity_id,
@@ -273,7 +296,7 @@ export const useOpportunityImages = () => {
       // Realiza a chamada de upsert única para o Supabase
       const { error: upsertError } = await supabase
         .from('opportunity_images')
-        .upsert(updates);
+        .upsert(updates, { onConflict: 'id' });
 
       if (upsertError) {
         throw upsertError;
