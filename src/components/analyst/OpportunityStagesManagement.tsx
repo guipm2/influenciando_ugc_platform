@@ -225,6 +225,11 @@ const OpportunityStagesManagement: React.FC = () => {
 
       const opportunityIds = opportunities.map(opp => opp.id);
 
+      // OTIMIZAÇÃO DE PERFORMANCE (N+1):
+      // Em vez de fazer queries individuais para cada oportunidade (o que geraria N+1 queries),
+      // buscamos todos os dados relacionados de uma vez usando .in('opportunity_id', ids).
+      // Isso reduz drasticamente o número de chamadas de rede e melhora a performance.
+
       // Fetch all related data in parallel
       const [
         { data: allApplications, error: applicationsError },
@@ -280,9 +285,9 @@ const OpportunityStagesManagement: React.FC = () => {
           .in('opportunity_id', opportunityIds)
       ]);
 
-      if (applicationsError) console.error('Erro ao buscar contagem de candidatos:', applicationsError);
-      if (approvedError) console.error('Erro ao buscar candidaturas aprovadas:', approvedError);
-      if (stagesError) console.error('Erro ao buscar etapas:', stagesError);
+      if (applicationsError) console.error('Erro ao buscar contagem de candidatos (bulk fetch):', applicationsError);
+      if (approvedError) console.error('Erro ao buscar candidaturas aprovadas (bulk fetch):', approvedError);
+      if (stagesError) console.error('Erro ao buscar etapas (bulk fetch):', stagesError);
 
       // Helper types for bulk data processing
       type CreatorProfile = {
