@@ -94,10 +94,19 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           creator:profiles!creator_id (
             name,
             email
+          ),
+          messages (
+            content,
+            sender_type,
+            created_at,
+            message_type,
+            project_context
           )
         `)
         .eq('analyst_id', analyst.id)
-        .order('last_message_at', { ascending: false });
+        .order('last_message_at', { ascending: false })
+        .order('created_at', { foreignTable: 'messages', ascending: false })
+        .limit(1, { foreignTable: 'messages' });
 
       if (convError) {
         console.error('Erro ao buscar conversas:', convError);
@@ -120,7 +129,8 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             projects: [],
             unread_count: 0,
             custom_title: conv.custom_title,
-            tags: conv.tags
+            tags: conv.tags,
+            messages: conv.messages
           });
           allConversationsByCreator.set(conv.creator_id, []);
         } else {
@@ -133,6 +143,7 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             existing.last_message_at = conv.last_message_at;
             existing.custom_title = conv.custom_title;
             existing.tags = conv.tags;
+            existing.messages = conv.messages;
           }
         }
         
@@ -196,37 +207,20 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             })
             .filter((p): p is NonNullable<typeof p> => p !== null);
 
-          // Get conversation IDs for this creator (already collected above)
-          const conversationIds = allConversationsByCreator.get(conv.creator_id) || [];
+          // Get last message from the pre-fetched data
+          const lastMessageData = conv.messages && conv.messages.length > 0 ? conv.messages[0] : null;
 
-          // Get last message across all conversations with this creator
-          let lastMessage = null;
-          if (conversationIds.length > 0) {
-            const { data } = await supabase
-              .from('messages')
-              .select(`
-                content, 
-                sender_type, 
-                created_at,
-                message_type,
-                project_context
-              `)
-              .in('conversation_id', conversationIds)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            
-            lastMessage = data;
-          }
+          // Clean up the temporary messages property before returning
+          const { messages: _tempMessages, ...cleanConv } = conv;
 
           return {
-            ...conv,
+            ...cleanConv,
             projects: formattedProjects,
-            lastMessage: lastMessage ? {
-              content: lastMessage.content,
-              sender_type: lastMessage.sender_type,
-              created_at: lastMessage.created_at,
-              project_context: lastMessage.project_context
+            lastMessage: lastMessageData ? {
+              content: lastMessageData.content,
+              sender_type: lastMessageData.sender_type,
+              created_at: lastMessageData.created_at,
+              project_context: lastMessageData.project_context
             } : undefined,
             custom_title: conv.custom_title || null,
             tags: (conv.tags || []) as string[]
