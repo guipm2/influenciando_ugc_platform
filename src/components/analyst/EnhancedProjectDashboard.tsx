@@ -163,7 +163,8 @@ const EnhancedProjectDashboard: React.FC = () => {
           creator:profiles!creator_id(
             name,
             email
-          )
+          ),
+          project_ratings(rating)
         `)
         .in('status', ['approved', 'in_progress', 'completed'])
         .eq('opportunities.created_by', user.id)
@@ -322,6 +323,22 @@ const EnhancedProjectDashboard: React.FC = () => {
         ? Math.round(totalDuration / projectsWithDuration.length)
         : 0;
 
+      // Calculate satisfaction rate
+      const ratedProjects = projectsData?.filter(p => {
+        const pWithRatings = p as unknown as { project_ratings: { rating: number }[] | null };
+        return Array.isArray(pWithRatings.project_ratings) && pWithRatings.project_ratings.length > 0;
+      }) || [];
+
+      const totalRating = ratedProjects.reduce((sum, p) => {
+        const pWithRatings = p as unknown as { project_ratings: { rating: number }[] | null };
+        const rating = pWithRatings.project_ratings ? pWithRatings.project_ratings[0].rating : 0;
+        return sum + rating;
+      }, 0);
+
+      const creatorSatisfactionRate = ratedProjects.length > 0
+        ? Math.round((totalRating / (ratedProjects.length * 5)) * 100)
+        : 0;
+
       // This month stats
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const thisMonthProjects = projectsWithDeliverables.filter(p => 
@@ -381,7 +398,7 @@ const EnhancedProjectDashboard: React.FC = () => {
         approvedDeliverables,
         avgProjectDuration,
         onTimeCompletionRate: completedProjects > 0 ? (completedProjects / (completedProjects + overdueProjects)) * 100 : 0,
-        creatorSatisfactionRate: 95, // TODO: Implement rating system
+        creatorSatisfactionRate,
         totalProjectValue,
         avgProjectBudget,
         thisMonthProjects,
