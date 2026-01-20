@@ -38,6 +38,10 @@ interface UpcomingProject {
   status: string;
 }
 
+interface OpportunityWithCount extends Omit<RecentOpportunity, 'candidates_count'> {
+  opportunity_applications: { count: number }[];
+}
+
 const AnalystOverview: React.FC = () => {
   const { user } = useAnalystAuth();
   const { navigate } = useRouter();
@@ -54,95 +58,51 @@ const AnalystOverview: React.FC = () => {
   const [selectedOpportunity, setSelectedOpportunity] = useState<RecentOpportunity | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
 
-  const loadDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async () => {
     if (!user) return;
 
     try {
       setLoading(true);
 
-      // 1. Fetch Stats (Parallel Count Queries)
-      const statsPromise = Promise.all([
-        // Active Opportunities
-        supabase
-          .from('opportunities')
-          .select('*', { count: 'exact', head: true })
-          .eq('created_by', user.id)
-          .eq('status', 'ativo'),
-        
-        // Completed Opportunities
-        supabase
-          .from('opportunities')
-          .select('*', { count: 'exact', head: true })
-          .eq('created_by', user.id)
-          .eq('status', 'concluido'),
-
-        // Total Opportunities
-        supabase
-          .from('opportunities')
-          .select('*', { count: 'exact', head: true })
-          .eq('created_by', user.id),
-
-        // Total Applications (filtered by user's opportunities)
-        supabase
-          .from('opportunity_applications')
-          .select('*, opportunities!inner(created_by)', { count: 'exact', head: true })
-          .eq('opportunities.created_by', user.id)
-      ]);
-
-      // 2. Fetch Recent Opportunities (Limit 5)
-      const recentOppsPromise = supabase
+      // Buscar estatísticas das oportunidades com count de aplicações em uma única query (otimização)
+      const { data: opportunitiesData, error: opportunitiesError } = await supabase
         .from('opportunities')
-        .select('*')
+        .select('*, opportunity_applications(count)')
         .eq('created_by', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
+        .order('created_at', { ascending: false });
 
-      const [
-        { count: activeCount, error: activeError },
-        { count: completedCount, error: completedError },
-        { count: totalOppCount, error: totalOppError },
-        { count: totalAppCount, error: totalAppError }
-      ] = await statsPromise;
-
-      const { data: recentOpps, error: recentOppsError } = await recentOppsPromise;
-
-      if (activeError || completedError || totalOppError || totalAppError || recentOppsError) {
-        console.error('Error fetching dashboard stats', { activeError, completedError, totalOppError, totalAppError, recentOppsError });
+      if (opportunitiesError) {
+        console.error('Erro ao buscar oportunidades:', opportunitiesError);
+        return;
       }
 
-      setStats({
-        activeOpportunities: activeCount || 0,
-        totalOpportunities: totalOppCount || 0,
-        completedOpportunities: completedCount || 0,
-        totalApplications: totalAppCount || 0,
+      // Mapear dados para incluir candidates_count do count agregado
+      const opportunitiesWithCandidatesCount = (opportunitiesData || []).map((opp) => {
+        const typedOpp = opp as unknown as OpportunityWithCount;
+        const { opportunity_applications, ...rest } = typedOpp;
+        return {
+          ...rest,
+          candidates_count: opportunity_applications?.[0]?.count || 0
+        };
       });
 
-      if (recentOpps && recentOpps.length > 0) {
-        // 3. Fetch candidate counts ONLY for the 5 recent opportunities
-        const { data: recentApps, error: recentAppsError } = await supabase
-          .from('opportunity_applications')
-          .select('opportunity_id')
-          .in('opportunity_id', recentOpps.map(op => op.id));
+      // Calcular estatísticas
+      const activeOpportunities = opportunitiesWithCandidatesCount.filter(op => op.status === 'ativo').length || 0;
+      const completedOpportunities = opportunitiesWithCandidatesCount.filter(op => op.status === 'concluido').length || 0;
+      const totalOpportunities = opportunitiesWithCandidatesCount.length || 0;
 
-        if (recentAppsError) {
-          console.error('Error fetching recent applications count:', recentAppsError);
-        }
+      // Calcular total de aplicações somando os counts individuais
+      const totalApplications = opportunitiesWithCandidatesCount.reduce((sum, opp) => sum + (opp.candidates_count || 0), 0);
 
-        // Aggregate counts in memory
-        const applicationCounts = (recentApps || []).reduce((acc, app) => {
-          acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
+      setStats({
+        activeOpportunities,
+        totalOpportunities,
+        completedOpportunities,
+        totalApplications,
+      });
 
-        const opportunitiesWithCandidatesCount = recentOpps.map((opp) => ({
-          ...opp,
-          candidates_count: applicationCounts[opp.id] || 0
-        }));
-
-        setRecentOpportunities(opportunitiesWithCandidatesCount);
-      } else {
-        setRecentOpportunities([]);
-      }
+      // Pegar as 5 oportunidades mais recentes com contagem atualizada
+      setRecentOpportunities(opportunitiesWithCandidatesCount.slice(0, 5));
 
     } catch (error) {
       console.error('Erro ao buscar dados do dashboard:', error);
@@ -209,7 +169,7 @@ const AnalystOverview: React.FC = () => {
       const upcomingProjectsData = opportunities
         .map(opportunity => {
           const application = applications?.find(app => app.opportunity_id === opportunity.id);
-
+          
           if (!application) return null; // Só incluir se tiver application aprovada
 
           const creator = Array.isArray(application.creator) ? application.creator[0] : application.creator;
@@ -238,13 +198,13 @@ const AnalystOverview: React.FC = () => {
       loadDashboardData();
       fetchUpcomingProjects();
     }
-  }, [user, loadDashboardData, fetchUpcomingProjects]);
+  }, [user, fetchDashboardData, fetchUpcomingProjects]);
 
   // Recarregar dados quando a aba voltar a ficar visível
   useTabVisibility(() => {
     if (user) {
       console.log('🔄 [ANALYST OVERVIEW] Recarregando dados após aba voltar a ficar visível');
-      loadDashboardData();
+      fetchDashboardData();
       fetchUpcomingProjects();
     }
   });
