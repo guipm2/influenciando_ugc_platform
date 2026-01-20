@@ -264,6 +264,8 @@ export const useOpportunityImages = () => {
 
     try {
       // Prepara os dados para a operação de upsert em lote
+      // PERFORMANCE: Utiliza upsert em lote para evitar N+1 atualizações (uma query por imagem)
+      // Esta abordagem reduz drasticamente o número de chamadas ao banco de dados (de N para 1)
       const updates = reorderedImages.map((img, index) => ({
         id: img.id,
         opportunity_id: img.opportunity_id,
@@ -273,7 +275,7 @@ export const useOpportunityImages = () => {
       // Realiza a chamada de upsert única para o Supabase
       const { error: upsertError } = await supabase
         .from('opportunity_images')
-        .upsert(updates);
+        .upsert(updates, { onConflict: 'id' });
 
       if (upsertError) {
         throw upsertError;
