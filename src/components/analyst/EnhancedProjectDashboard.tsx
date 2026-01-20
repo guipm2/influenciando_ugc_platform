@@ -427,40 +427,6 @@ const EnhancedProjectDashboard: React.FC = () => {
       });
 
       setUpcomingDeadlines(upcomingDeadlines.sort((a, b) => a.days_until - b.days_until).slice(0, 10));
-
-      // Calculate content type statistics
-      const contentTypes = new Map();
-      projectsWithDeliverables.forEach(project => {
-        const type = project.content_type;
-        if (!contentTypes.has(type)) {
-          contentTypes.set(type, {
-            content_type: type,
-            count: 0,
-            total_budget: 0,
-            completed: 0,
-            total_duration: 0
-          });
-        }
-        const stats = contentTypes.get(type);
-        stats.count++;
-        stats.total_budget += project.budget_max;
-        if (project.status === 'completed') {
-          stats.completed++;
-
-          if (project.duration !== undefined) {
-            stats.total_duration += project.duration;
-          }
-        }
-      });
-
-      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
-        content_type: stat.content_type,
-        count: stat.count,
-        avg_budget: stat.total_budget / stat.count,
-        completion_rate: (stat.completed / stat.count) * 100,
-        avg_duration: stat.completed > 0 ? Math.round(stat.total_duration / stat.completed) : 0
-      }));
-
       setContentTypeStats(contentTypeStatsArray);
 
     } catch (error) {
