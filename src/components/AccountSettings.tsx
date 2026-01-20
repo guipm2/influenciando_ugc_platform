@@ -130,11 +130,13 @@ const AccountSettings = () => {
         }
         
         // Deletar dados relacionados manualmente
-        await supabase.from('opportunity_applications').delete().eq('creator_id', user.id);
-        await supabase.from('opportunity_stages').delete().eq('creator_id', user.id);
-        await supabase.from('messages').delete().eq('sender_id', user.id);
-        await supabase.from('conversations').delete().eq('creator_id', user.id);
-        await supabase.from('notifications').delete().eq('user_id', user.id);
+        await Promise.all([
+          supabase.from('opportunity_applications').delete().eq('creator_id', user.id),
+          supabase.from('opportunity_stages').delete().eq('creator_id', user.id),
+          supabase.from('messages').delete().eq('sender_id', user.id),
+          supabase.from('conversations').delete().eq('creator_id', user.id),
+          supabase.from('notifications').delete().eq('user_id', user.id)
+        ]);
         
         // Deletar perfil
         const { error: profileError } = await supabase
