@@ -42,31 +42,35 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
 
   const performSearch = useCallback(async () => {
     setLoading(true);
-    const searchResults: SearchResult[] = [];
 
     try {
-      // Search creators (priority for analysts)
-      const { data: creators } = await supabase
-        .from('profiles')
-        .select('*')
-        .or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,bio.ilike.%${searchTerm}%,niche.ilike.%${searchTerm}%`)
-        .limit(8);
+      const fetchCreators = async () => {
+        const { data: creators } = await supabase
+          .from('profiles')
+          .select('*')
+          .or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,bio.ilike.%${searchTerm}%,niche.ilike.%${searchTerm}%`)
+          .limit(8);
 
-      if (creators) {
-        creators.forEach(creator => {
-          searchResults.push({
-            id: creator.id,
-            type: 'creator',
-            title: creator.name || creator.email,
-            subtitle: `${creator.niche ? creator.niche.charAt(0).toUpperCase() + creator.niche.slice(1) : 'Criador'} • ${creator.followers || 'Seguidores não informado'}`,
-            avatar: creator.avatar_url,
-            data: creator
+        const results: SearchResult[] = [];
+        if (creators) {
+          creators.forEach(creator => {
+            results.push({
+              id: creator.id,
+              type: 'creator',
+              title: creator.name || creator.email,
+              subtitle: `${creator.niche ? creator.niche.charAt(0).toUpperCase() + creator.niche.slice(1) : 'Criador'} • ${creator.followers || 'Seguidores não informado'}`,
+              avatar: creator.avatar_url,
+              data: creator
+            });
           });
-        });
-      }
+        }
+        return results;
+      };
 
-      // Search own opportunities
-      if (analyst) {
+      const fetchOpportunities = async () => {
+        const results: SearchResult[] = [];
+        if (!analyst) return results;
+
         const { data: opportunities } = await supabase
           .from('opportunities')
           .select('*')
@@ -95,7 +99,7 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
 
           opportunities.forEach(opp => {
             const count = applicationCounts[opp.id] || 0;
-            searchResults.push({
+            results.push({
               id: opp.id,
               type: 'opportunity',
               title: opp.title,
@@ -104,29 +108,39 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
             });
           });
         }
-      }
+        return results;
+      };
 
-      // Search companies (from all opportunities)
-      const { data: companies } = await supabase
-        .from('opportunities')
-        .select('company')
-        .ilike('company', `%${searchTerm}%`)
-        .eq('status', 'ativo');
+      const fetchCompanies = async () => {
+        const results: SearchResult[] = [];
+        const { data: companies } = await supabase
+          .from('opportunities')
+          .select('company')
+          .ilike('company', `%${searchTerm}%`)
+          .eq('status', 'ativo');
 
-      if (companies) {
-        const uniqueCompanies = [...new Set(companies.map(c => c.company))];
-        uniqueCompanies.slice(0, 3).forEach(company => {
-          searchResults.push({
-            id: company,
-            type: 'company',
-            title: company,
-            subtitle: 'Empresa',
-            data: { company }
+        if (companies) {
+          const uniqueCompanies = [...new Set(companies.map(c => c.company))];
+          uniqueCompanies.slice(0, 3).forEach(company => {
+            results.push({
+              id: company,
+              type: 'company',
+              title: company,
+              subtitle: 'Empresa',
+              data: { company }
+            });
           });
-        });
-      }
+        }
+        return results;
+      };
 
-      setResults(searchResults);
+      const [creatorsResults, opportunitiesResults, companiesResults] = await Promise.all([
+        fetchCreators(),
+        fetchOpportunities(),
+        fetchCompanies()
+      ]);
+
+      setResults([...creatorsResults, ...opportunitiesResults, ...companiesResults]);
       setIsOpen(true);
     } catch (error) {
       console.error('Erro na busca:', error);

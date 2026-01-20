@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
 import { useRouter } from '../../hooks/useRouter';
 import ModalPortal from '../common/ModalPortal';
+import TimeLogModal from './TimeLogModal';
 
 interface Project {
   id: string;
@@ -30,6 +31,7 @@ interface ProjectDeliverable {
   due_date: string;
   priority?: number;
   status: 'pending' | 'in_progress' | 'submitted' | 'approved' | 'rejected';
+  estimated_hours?: number;
   analyst_feedback?: string;
   reviewed_at?: string;
   files?: DeliverableFile[];
@@ -67,11 +69,14 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
   const [briefing, setBriefing] = useState('');
   const [briefingSaving, setBriefingSaving] = useState(false);
   const [briefingSaved, setBriefingSaved] = useState(false);
+  const [showTimeLogModal, setShowTimeLogModal] = useState(false);
+  const [selectedDeliverableForTime, setSelectedDeliverableForTime] = useState<{id: string, title: string} | null>(null);
   const [deliverableForm, setDeliverableForm] = useState({
     title: '',
     description: '',
     due_date: '',
     priority: 1,
+    estimated_hours: 0,
     status: 'pending' as 'pending' | 'in_progress' | 'submitted' | 'approved' | 'rejected'
   });
   const { user } = useAnalystAuth();
@@ -97,6 +102,7 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
           description: deliverableForm.description,
           due_date: deliverableForm.due_date,
           priority: deliverableForm.priority,
+          estimated_hours: deliverableForm.estimated_hours,
           status: 'pending'
         });
 
@@ -113,6 +119,7 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
         description: '', 
         due_date: '', 
         priority: 1, 
+        estimated_hours: 0,
         status: 'pending' 
       });
       
@@ -289,6 +296,7 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
           description: d.description,
           due_date: d.due_date,
           priority: d.priority,
+          estimated_hours: d.estimated_hours,
           status: d.status,
           analyst_feedback: d.analyst_feedback,
           reviewed_at: d.reviewed_at,
@@ -587,6 +595,24 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Horas Estimadas
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={deliverableForm.estimated_hours}
+                  onChange={(e) => setDeliverableForm(prev => ({
+                    ...prev,
+                    estimated_hours: parseFloat(e.target.value) || 0
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#00FF41]"
+                  placeholder="0"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Status
                 </label>
                 <select 
@@ -783,6 +809,16 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
                           <p className="text-xs text-gray-500">Prazo: {formatDate(deliverable.due_date)}</p>
                         </div>
                         <div className="flex items-center gap-2 ml-4">
+                          <button
+                            onClick={() => {
+                              setSelectedDeliverableForTime({ id: deliverable.id, title: deliverable.title });
+                              setShowTimeLogModal(true);
+                            }}
+                            className="p-1.5 text-gray-500 hover:text-[#00FF41] hover:bg-[#00FF41]/10 rounded-lg transition-colors"
+                            title="Registrar Tempo"
+                          >
+                            <Clock className="h-4 w-4" />
+                          </button>
                           {deliverable.status === 'submitted' && (
                             <>
                               <button
@@ -895,6 +931,18 @@ const ProjectManagement: React.FC<ProjectManagementProps> = ({ onOpenConversatio
   return (
     <div>
       {renderModal()}
+        <TimeLogModal
+          isOpen={showTimeLogModal}
+          onClose={() => {
+            setShowTimeLogModal(false);
+            setSelectedDeliverableForTime(null);
+          }}
+          deliverableId={selectedDeliverableForTime?.id || ''}
+          deliverableTitle={selectedDeliverableForTime?.title || ''}
+          onSuccess={() => {
+            // Opcional: recarregar dados ou mostrar feedback
+          }}
+        />
       <div className="space-y-6">
       {/* Header */}
       <div>
