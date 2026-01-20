@@ -131,10 +131,12 @@ const AnalystAccountSettings = () => {
         }
         
         // Deletar dados relacionados manualmente
-        await supabase.from('opportunities').delete().eq('analyst_id', analyst.id);
-        await supabase.from('conversations').delete().eq('analyst_id', analyst.id);
-        await supabase.from('messages').delete().eq('sender_id', analyst.id);
-        await supabase.from('notifications').delete().eq('user_id', analyst.id);
+        await Promise.all([
+          supabase.from('opportunities').delete().eq('analyst_id', analyst.id),
+          supabase.from('conversations').delete().eq('analyst_id', analyst.id),
+          supabase.from('messages').delete().eq('sender_id', analyst.id),
+          supabase.from('notifications').delete().eq('user_id', analyst.id)
+        ]);
         await supabase.from('analysts').delete().eq('id', analyst.id);
         
         // Deletar perfil

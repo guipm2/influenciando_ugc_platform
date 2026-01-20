@@ -218,73 +218,140 @@ const OpportunityStagesManagement: React.FC = () => {
         return;
       }
 
-      // Para cada oportunidade, buscar criadores aprovados e suas etapas
-      const opportunitiesWithCreators = await Promise.all(
-        (opportunities || []).map(async (opp) => {
-          // Calculate dynamic candidates count for this opportunity
-          const { count: candidatesCount, error: candidatesError } = await supabase
-            .from('opportunity_applications')
-            .select('*', { count: 'exact', head: true })
-            .eq('opportunity_id', opp.id);
+      if (!opportunities || opportunities.length === 0) {
+        setOpportunitiesWithCreators([]);
+        return;
+      }
 
-          if (candidatesError) {
-            console.error('Erro ao buscar contagem de candidatos:', candidatesError);
-          }
+      const opportunityIds = opportunities.map(opp => opp.id);
 
-          // Buscar candidaturas aprovadas
-          const { data: applications } = await supabase
-            .from('opportunity_applications')
-            .select(`
-              creator_id,
-              creator:profiles (
-                name,
-                email,
-                bio,
-                location,
-                niche,
-                followers,
-                website,
-                phone,
-                avatar_url,
-                created_at
-              )
-            `)
-            .eq('opportunity_id', opp.id)
-            .eq('status', 'approved');
+      // Fetch all related data in parallel
+      const [
+        { data: allApplications, error: applicationsError },
+        { data: approvedApplications, error: approvedError },
+        { data: stages, error: stagesError }
+      ] = await Promise.all([
+        // Get all applications to count candidates
+        supabase
+          .from('opportunity_applications')
+          .select('opportunity_id')
+          .in('opportunity_id', opportunityIds),
 
-          // Buscar etapas dos criadores aprovados
-          const { data: stages } = await supabase
-            .from('opportunity_stages')
-            .select(`
-              *,
-              creator:profiles (
-                name,
-                email,
-                bio,
-                location,
-                niche,
-                followers,
-                website,
-                phone,
-                avatar_url,
-                created_at
-              )
-            `)
-            .eq('opportunity_id', opp.id);
+        // Get approved applications with details
+        supabase
+          .from('opportunity_applications')
+          .select(`
+            opportunity_id,
+            creator_id,
+            creator:profiles (
+              name,
+              email,
+              bio,
+              location,
+              niche,
+              followers,
+              website,
+              phone,
+              avatar_url,
+              created_at
+            )
+          `)
+          .in('opportunity_id', opportunityIds)
+          .eq('status', 'approved'),
 
-          const creators = (stages || []).map(stage => ({
-            ...stage,
-            opportunity: opp
-          }));
+        // Get stages
+        supabase
+          .from('opportunity_stages')
+          .select(`
+            *,
+            creator:profiles (
+              name,
+              email,
+              bio,
+              location,
+              niche,
+              followers,
+              website,
+              phone,
+              avatar_url,
+              created_at
+            )
+          `)
+          .in('opportunity_id', opportunityIds)
+      ]);
 
-          return {
-            ...opp,
-            candidates_count: candidatesCount || 0,
-            approved_count: applications?.length || 0,
-            creators
-          };
-        })
-      );
+      if (applicationsError) console.error('Erro ao buscar contagem de candidatos:', applicationsError);
+      if (approvedError) console.error('Erro ao buscar candidaturas aprovadas:', approvedError);
+      if (stagesError) console.error('Erro ao buscar etapas:', stagesError);
+
+      // Helper types for bulk data processing
+      type CreatorProfile = {
+        name: string;
+        email: string;
+        bio: string;
+        location: string;
+        niche: string;
+        followers: string;
+        website: string;
+        phone: string;
+        avatar_url: string;
+        created_at: string;
+      };
+
+      type DbStage = {
+        id: string;
+        opportunity_id: string;
+        stage: string;
+        tracking_code: string | null;
+        notes: string | null;
+        completed_at: string | null;
+        created_at: string;
+        updated_at: string;
+        creator_id: string | null;
+        creator: CreatorProfile;
+      };
+
+      type DbApplication = {
+        opportunity_id: string;
+        creator_id: string;
+        creator: CreatorProfile;
+      };
+
+      // Process data for quick lookup
+      const candidateCounts = (allApplications || []).reduce((acc, app) => {
+        acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const approvedMap = (approvedApplications || []).reduce((acc, app) => {
+        const typedApp = app as unknown as DbApplication;
+        if (!acc[typedApp.opportunity_id]) acc[typedApp.opportunity_id] = [];
+        acc[typedApp.opportunity_id].push(typedApp);
+        return acc;
+      }, {} as Record<string, DbApplication[]>);
+
+      const stagesMap = (stages || []).reduce((acc, stage) => {
+        const typedStage = stage as unknown as DbStage;
+        if (!acc[typedStage.opportunity_id]) acc[typedStage.opportunity_id] = [];
+        acc[typedStage.opportunity_id].push(typedStage);
+        return acc;
+      }, {} as Record<string, DbStage[]>);
+
+      // Map back to opportunities
+      const opportunitiesWithCreators = opportunities.map((opp) => {
+        const oppStages = stagesMap[opp.id] || [];
+        const creators = oppStages.map((stage) => ({
+          ...stage,
+          opportunity: opp
+        }));
+
+        return {
+          ...opp,
+          candidates_count: candidateCounts[opp.id] || 0,
+          approved_count: (approvedMap[opp.id] || []).length,
+          creators
+        };
+      });
 
       setOpportunitiesWithCreators(opportunitiesWithCreators);
     } catch (err) {

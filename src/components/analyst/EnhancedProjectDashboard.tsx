@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
 import { useRouter } from '../../hooks/useRouter';
 import { useTabVisibility } from '../../hooks/useTabVisibility';
+import { formatRelativeTime } from '../../utils/formatters';
 
 interface ProjectDashboardStats {
   // Project stats
@@ -58,6 +59,7 @@ interface ProjectOverview {
   last_activity: string;
   estimated_hours: number;
   spent_hours: number;
+  duration?: number;
   conversation_id?: string;
 }
 
@@ -146,6 +148,7 @@ const EnhancedProjectDashboard: React.FC = () => {
           creator_id,
           status,
           applied_at,
+          updated_at,
           opportunity:opportunities!inner(
             id,
             title,
@@ -183,7 +186,6 @@ const EnhancedProjectDashboard: React.FC = () => {
           priority,
           estimated_hours,
           created_at,
-          reviewed_at,
           updated_at
         `)
         .eq('analyst_id', user.id);
@@ -192,6 +194,18 @@ const EnhancedProjectDashboard: React.FC = () => {
         console.error('Erro ao buscar deliverables:', deliverablesError);
         return;
       }
+
+      // Fetch conversations for last message activity
+      const opportunityIds = (projectsData || []).map(p => {
+        const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
+        return opportunity.id;
+      });
+
+      const { data: conversationsData } = await supabase
+        .from('conversations')
+        .select('opportunity_id, last_message_at')
+        .in('opportunity_id', opportunityIds)
+        .eq('analyst_id', user.id);
 
       // Process projects with deliverables
       const projectsWithDeliverables = (projectsData || []).map(project => {
@@ -218,6 +232,32 @@ const EnhancedProjectDashboard: React.FC = () => {
         else if (isOverdue) status = 'overdue';
         else if (isAtRisk) status = 'at_risk';
 
+        // Calculate last activity and duration
+        let lastActivity = project.applied_at;
+        let duration: number | undefined;
+
+        if (projectDeliverables.length > 0) {
+          const dates = projectDeliverables.map(d => new Date(d.updated_at || d.created_at).getTime());
+          const maxDate = Math.max(...dates);
+          lastActivity = new Date(maxDate).toISOString();
+
+          // Calculate duration if completed
+          if (status === 'completed') {
+            const approvedDates = projectDeliverables
+              .filter(d => d.status === 'approved')
+              .map(d => new Date(d.updated_at || d.created_at).getTime());
+
+            if (approvedDates.length > 0) {
+              const maxApprovedDate = Math.max(...approvedDates);
+              const durationMs = maxApprovedDate - new Date(project.applied_at).getTime();
+              const durationDays = durationMs / (1000 * 60 * 60 * 24);
+              if (durationDays >= 0) {
+                duration = durationDays;
+              }
+            }
+          }
+        }
+
         return {
           id: project.id,
           opportunity_id: opportunity.id,
@@ -236,7 +276,8 @@ const EnhancedProjectDashboard: React.FC = () => {
           deliverables_total: projectDeliverables.length,
           deliverables_completed: completedDeliverables,
           deliverables_overdue: overdueDeliverables,
-          last_activity: project.applied_at, // TODO: Get actual last activity
+          last_activity: lastActivity,
+          duration,
           estimated_hours: projectDeliverables.reduce((sum, d) => sum + (d.estimated_hours || 0), 0),
           spent_hours: 0 // TODO: Implement time tracking
         };
@@ -256,6 +297,14 @@ const EnhancedProjectDashboard: React.FC = () => {
       const totalProjectValue = projectsWithDeliverables.reduce((sum, p) => sum + p.budget_max, 0);
       const avgProjectBudget = projectsWithDeliverables.length > 0 
         ? totalProjectValue / projectsWithDeliverables.length 
+        : 0;
+
+      // Calculate average project duration
+      const projectsWithDuration = projectsWithDeliverables.filter(p => p.duration !== undefined);
+      const totalDuration = projectsWithDuration.reduce((sum, p) => sum + (p.duration || 0), 0);
+
+      const avgProjectDuration = projectsWithDuration.length > 0
+        ? Math.round(totalDuration / projectsWithDuration.length)
         : 0;
 
       // This month stats
@@ -333,9 +382,7 @@ const EnhancedProjectDashboard: React.FC = () => {
         pendingDeliverables,
         overdueDeliverables,
         approvedDeliverables,
-        avgProjectDuration: completedGlobalProjects > 0
-          ? Math.round(totalGlobalDuration / completedGlobalProjects)
-          : 0,
+        avgProjectDuration,
         onTimeCompletionRate: completedProjects > 0 ? (completedProjects / (completedProjects + overdueProjects)) * 100 : 0,
         creatorSatisfactionRate: 95, // TODO: Implement rating system
         totalProjectValue,
@@ -391,6 +438,39 @@ const EnhancedProjectDashboard: React.FC = () => {
       });
 
       setUpcomingDeadlines(upcomingDeadlines.sort((a, b) => a.days_until - b.days_until).slice(0, 10));
+
+      // Calculate content type statistics
+      const contentTypes = new Map();
+      projectsWithDeliverables.forEach(project => {
+        const type = project.content_type;
+        if (!contentTypes.has(type)) {
+          contentTypes.set(type, {
+            content_type: type,
+            count: 0,
+            total_budget: 0,
+            completed: 0,
+            total_duration: 0
+          });
+        }
+        const stats = contentTypes.get(type);
+        stats.count++;
+        stats.total_budget += project.budget_max;
+        if (project.status === 'completed') {
+          stats.completed++;
+
+          if (project.duration !== undefined) {
+            stats.total_duration += project.duration;
+          }
+        }
+      });
+
+      const contentTypeStatsArray = Array.from(contentTypes.values()).map(stat => ({
+        content_type: stat.content_type,
+        count: stat.count,
+        avg_budget: stat.total_budget / stat.count,
+        completion_rate: (stat.completed / stat.count) * 100,
+        avg_duration: stat.completed > 0 ? Math.round(stat.total_duration / stat.completed) : 0
+      }));
 
       setContentTypeStats(contentTypeStatsArray);
 
@@ -793,6 +873,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                       <div className="flex items-center text-sm text-gray-600">
                         <DollarSign className="h-4 w-4 mr-2" />
                         R$ {(project.budget_min / 1000).toFixed(0)}k - R$ {(project.budget_max / 1000).toFixed(0)}k
+                      </div>
+                      <div className="flex items-center text-sm text-gray-500">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Atividade: {formatRelativeTime(project.last_activity)}
                       </div>
                     </div>
                     
