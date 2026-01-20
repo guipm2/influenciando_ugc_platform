@@ -61,6 +61,13 @@ interface UnreadMessageData {
   conversation_id: string;
 }
 
+interface MessageData {
+  conversation_id: string;
+  content: string;
+  sender_type: string;
+  created_at: string;
+}
+
 export const fetchCreatorChats = async (supabase: SupabaseClient, userId: string): Promise<ProjectChat[]> => {
   // Step 1: Get all conversations for this creator
   const { data: conversationData, error: convError } = await supabase
@@ -200,7 +207,29 @@ export const fetchCreatorChats = async (supabase: SupabaseClient, userId: string
       });
   }
 
-  // Step 4: Process per analyst (Memory processing + 1 query for last message)
+  // 3e. Fetch Latest Messages (Batch via RPC)
+  const allConversationIds: string[] = [];
+  allConversationsByAnalyst.forEach((ids) => allConversationIds.push(...ids));
+
+  const latestMessagesMap = new Map<string, MessageData>();
+
+  if (allConversationIds.length > 0) {
+    const { data: latestMessages, error: rpcError } = await supabase.rpc<MessageData[]>('get_latest_messages', {
+      conversation_ids: allConversationIds
+    });
+
+    if (!rpcError && latestMessages) {
+      if (Array.isArray(latestMessages)) {
+        latestMessages.forEach((msg) => {
+          latestMessagesMap.set(msg.conversation_id, msg);
+        });
+      }
+    } else if (rpcError) {
+      console.error('❌ [MESSAGES] Erro ao buscar últimas mensagens (RPC):', rpcError);
+    }
+  }
+
+  // Step 4: Process per analyst (Memory processing only)
   const unifiedConversations = await Promise.all(
     Array.from(analystConversations.values()).map(async (conv) => {
       // Get analyst info from Map
@@ -228,19 +257,24 @@ export const fetchCreatorChats = async (supabase: SupabaseClient, userId: string
       // Get conversation IDs for this analyst
       const conversationIds = allConversationsByAnalyst.get(conv.analyst_id) || [];
 
-      // Get last message across all conversations with this analyst (Remains 1 query per analyst group)
+      // Find the most recent message among all conversations for this analyst
       let lastMessage = null;
-      if (conversationIds.length > 0) {
-        const { data } = await supabase
-          .from('messages')
-          .select('content, sender_type, created_at')
-          .in('conversation_id', conversationIds)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+      let lastMessageDate: Date | null = null;
 
-        lastMessage = data;
-      }
+      conversationIds.forEach((convId: string) => {
+        const msg = latestMessagesMap.get(convId);
+        if (msg) {
+          const msgDate = new Date(msg.created_at);
+          if (!lastMessageDate || msgDate > lastMessageDate) {
+            lastMessageDate = msgDate;
+            lastMessage = {
+              content: msg.content,
+              sender_type: msg.sender_type,
+              created_at: msg.created_at
+            };
+          }
+        }
+      });
 
       // Count unread messages (Memory lookup)
       let unreadCount = 0;

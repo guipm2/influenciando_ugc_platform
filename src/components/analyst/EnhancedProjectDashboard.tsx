@@ -166,7 +166,7 @@ const EnhancedProjectDashboard: React.FC = () => {
           ),
           project_ratings(rating)
         `)
-        .eq('status', 'approved')
+        .in('status', ['approved', 'in_progress', 'completed'])
         .eq('opportunities.created_by', user.id)
         .gte('applied_at', startDate.toISOString());
 
@@ -187,7 +187,10 @@ const EnhancedProjectDashboard: React.FC = () => {
           priority,
           estimated_hours,
           created_at,
-          updated_at
+          updated_at,
+          time_entries (
+            hours
+          )
         `)
         .eq('analyst_id', user.id);
 
@@ -196,17 +199,6 @@ const EnhancedProjectDashboard: React.FC = () => {
         return;
       }
 
-      // Fetch conversations for last message activity
-      const opportunityIds = (projectsData || []).map(p => {
-        const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
-        return opportunity.id;
-      });
-
-      const { data: conversationsData } = await supabase
-        .from('conversations')
-        .select('opportunity_id, last_message_at')
-        .in('opportunity_id', opportunityIds)
-        .eq('analyst_id', user.id);
 
       // Process projects with deliverables
       const projectsWithDeliverables = (projectsData || []).map(project => {
@@ -229,21 +221,39 @@ const EnhancedProjectDashboard: React.FC = () => {
         );
         
         let status: ProjectOverview['status'] = 'active';
-        if (progress === 100) status = 'completed';
-        else if (isOverdue) status = 'overdue';
-        else if (isAtRisk) status = 'at_risk';
 
-        // Calculate last activity and duration
-        let lastActivity = project.applied_at;
-        let duration: number | undefined;
+        if (project.status === 'completed') {
+          status = 'completed';
+        } else if (progress === 100) {
+          status = 'completed';
+        } else if (isOverdue) {
+          status = 'overdue';
+        } else if (isAtRisk) {
+          status = 'at_risk';
+        }
+
+        // Calculate last activity
+        const timestamps = [
+          new Date(project.applied_at).getTime(),
+          project.updated_at ? new Date(project.updated_at).getTime() : 0
+        ];
+
+        // If project is explicitly completed in DB, use updated_at as completion time
+        if (project.status === 'completed' && project.updated_at) {
+          const durationMs = new Date(project.updated_at).getTime() - new Date(project.applied_at).getTime();
+          const durationDays = durationMs / (1000 * 60 * 60 * 24);
+          if (durationDays >= 0) {
+            duration = durationDays;
+          }
+        }
 
         if (projectDeliverables.length > 0) {
           const dates = projectDeliverables.map(d => new Date(d.updated_at || d.created_at).getTime());
           const maxDate = Math.max(...dates);
           lastActivity = new Date(maxDate).toISOString();
 
-          // Calculate duration if completed
-          if (status === 'completed') {
+          // Calculate duration if completed (fallback to deliverables if not set above)
+          if (status === 'completed' && duration === undefined) {
             const approvedDates = projectDeliverables
               .filter(d => d.status === 'approved')
               .map(d => new Date(d.updated_at || d.created_at).getTime());
@@ -280,7 +290,12 @@ const EnhancedProjectDashboard: React.FC = () => {
           last_activity: lastActivity,
           duration,
           estimated_hours: projectDeliverables.reduce((sum, d) => sum + (d.estimated_hours || 0), 0),
-          spent_hours: 0 // TODO: Implement time tracking
+          spent_hours: projectDeliverables.reduce((total, d) => {
+            // @ts-expect-error - time_entries comes from join but is not in the type definition yet
+            const entries: { hours: number }[] = d.time_entries || [];
+            const hours = entries.reduce((sum: number, entry) => sum + (entry.hours || 0), 0);
+            return total + hours;
+          }, 0)
         };
       });
 
@@ -335,8 +350,6 @@ const EnhancedProjectDashboard: React.FC = () => {
 
       // Calculate content type statistics and duration
       const contentTypes = new Map();
-      let totalGlobalDuration = 0;
-      let completedGlobalProjects = 0;
 
       projectsWithDeliverables.forEach(project => {
         const type = project.content_type;
@@ -357,25 +370,9 @@ const EnhancedProjectDashboard: React.FC = () => {
         if (project.status === 'completed') {
           stats.completed++;
 
-          // Calculate duration
-          const projectDeliverables = (deliverablesData || []).filter(d => d.application_id === project.id);
-          const completionDates = projectDeliverables
-            .map(d => d.reviewed_at || d.updated_at)
-            .filter(Boolean)
-            .map(d => new Date(d!).getTime());
-
-          if (completionDates.length > 0) {
-            const completionTime = Math.max(...completionDates);
-            const startTime = new Date(project.created_at).getTime();
-            const durationDays = (completionTime - startTime) / (1000 * 60 * 60 * 24);
-
-            if (durationDays >= 0) {
-              stats.total_duration += durationDays;
-              stats.completed_with_duration++;
-
-              totalGlobalDuration += durationDays;
-              completedGlobalProjects++;
-            }
+          if (project.duration !== undefined) {
+            stats.total_duration += project.duration;
+            stats.completed_with_duration++;
           }
         }
       });
@@ -455,7 +452,6 @@ const EnhancedProjectDashboard: React.FC = () => {
       });
 
       setUpcomingDeadlines(upcomingDeadlines.sort((a, b) => a.days_until - b.days_until).slice(0, 10));
-
       setContentTypeStats(contentTypeStatsArray);
 
     } catch (error) {
@@ -857,6 +853,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                       <div className="flex items-center text-sm text-gray-600">
                         <DollarSign className="h-4 w-4 mr-2" />
                         R$ {(project.budget_min / 1000).toFixed(0)}k - R$ {(project.budget_max / 1000).toFixed(0)}k
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Clock className="h-4 w-4 mr-2" />
+                        Horas: {project.spent_hours?.toFixed(1) || '0.0'} / {project.estimated_hours?.toFixed(1) || '0.0'}h
                       </div>
                       <div className="flex items-center text-sm text-gray-500">
                         <Activity className="h-4 w-4 mr-2" />
