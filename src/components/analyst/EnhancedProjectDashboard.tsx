@@ -58,6 +58,7 @@ interface ProjectOverview {
   last_activity: string;
   estimated_hours: number;
   spent_hours: number;
+  duration?: number;
   conversation_id?: string;
 }
 
@@ -182,7 +183,8 @@ const EnhancedProjectDashboard: React.FC = () => {
           status,
           priority,
           estimated_hours,
-          created_at
+          created_at,
+          updated_at
         `)
         .eq('analyst_id', user.id);
 
@@ -216,6 +218,32 @@ const EnhancedProjectDashboard: React.FC = () => {
         else if (isOverdue) status = 'overdue';
         else if (isAtRisk) status = 'at_risk';
 
+        // Calculate last activity and duration
+        let lastActivity = project.applied_at;
+        let duration: number | undefined;
+
+        if (projectDeliverables.length > 0) {
+          const dates = projectDeliverables.map(d => new Date(d.updated_at || d.created_at).getTime());
+          const maxDate = Math.max(...dates);
+          lastActivity = new Date(maxDate).toISOString();
+
+          // Calculate duration if completed
+          if (status === 'completed') {
+            const approvedDates = projectDeliverables
+              .filter(d => d.status === 'approved')
+              .map(d => new Date(d.updated_at || d.created_at).getTime());
+
+            if (approvedDates.length > 0) {
+              const maxApprovedDate = Math.max(...approvedDates);
+              const durationMs = maxApprovedDate - new Date(project.applied_at).getTime();
+              const durationDays = durationMs / (1000 * 60 * 60 * 24);
+              if (durationDays >= 0) {
+                duration = durationDays;
+              }
+            }
+          }
+        }
+
         return {
           id: project.id,
           opportunity_id: opportunity.id,
@@ -234,7 +262,8 @@ const EnhancedProjectDashboard: React.FC = () => {
           deliverables_total: projectDeliverables.length,
           deliverables_completed: completedDeliverables,
           deliverables_overdue: overdueDeliverables,
-          last_activity: project.applied_at, // TODO: Get actual last activity
+          last_activity: lastActivity,
+          duration,
           estimated_hours: projectDeliverables.reduce((sum, d) => sum + (d.estimated_hours || 0), 0),
           spent_hours: 0 // TODO: Implement time tracking
         };
@@ -256,6 +285,14 @@ const EnhancedProjectDashboard: React.FC = () => {
         ? totalProjectValue / projectsWithDeliverables.length 
         : 0;
 
+      // Calculate average project duration
+      const projectsWithDuration = projectsWithDeliverables.filter(p => p.duration !== undefined);
+      const totalDuration = projectsWithDuration.reduce((sum, p) => sum + (p.duration || 0), 0);
+
+      const avgProjectDuration = projectsWithDuration.length > 0
+        ? Math.round(totalDuration / projectsWithDuration.length)
+        : 0;
+
       // This month stats
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const thisMonthProjects = projectsWithDeliverables.filter(p => 
@@ -274,7 +311,7 @@ const EnhancedProjectDashboard: React.FC = () => {
         pendingDeliverables,
         overdueDeliverables,
         approvedDeliverables,
-        avgProjectDuration: 0, // TODO: Calculate based on actual completion times
+        avgProjectDuration,
         onTimeCompletionRate: completedProjects > 0 ? (completedProjects / (completedProjects + overdueProjects)) * 100 : 0,
         creatorSatisfactionRate: 95, // TODO: Implement rating system
         totalProjectValue,
@@ -349,6 +386,10 @@ const EnhancedProjectDashboard: React.FC = () => {
         stats.total_budget += project.budget_max;
         if (project.status === 'completed') {
           stats.completed++;
+
+          if (project.duration !== undefined) {
+            stats.total_duration += project.duration;
+          }
         }
       });
 
@@ -357,7 +398,7 @@ const EnhancedProjectDashboard: React.FC = () => {
         count: stat.count,
         avg_budget: stat.total_budget / stat.count,
         completion_rate: (stat.completed / stat.count) * 100,
-        avg_duration: 0 // TODO: Calculate based on actual durations
+        avg_duration: stat.completed > 0 ? Math.round(stat.total_duration / stat.completed) : 0
       }));
 
       setContentTypeStats(contentTypeStatsArray);
