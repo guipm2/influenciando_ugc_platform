@@ -76,41 +76,35 @@ const AnalystOverview: React.FC = () => {
         const completedOpportunities = opportunities?.filter(op => op.status === 'concluido').length || 0;
         const totalOpportunities = opportunities?.length || 0;
 
-        // Buscar total de candidaturas
-        const { count: totalApplications, error: applicationsError } = await supabase
+        // Buscar todas as candidaturas para as oportunidades (otimização N+1)
+        const { data: allApplications, error: applicationsError } = await supabase
           .from('opportunity_applications')
-          .select('id', { count: 'exact', head: true })
+          .select('opportunity_id')
           .in('opportunity_id', opportunities?.map(op => op.id) || []);
 
         if (applicationsError) {
           console.error('Erro ao buscar candidaturas:', applicationsError);
         }
 
+        const totalApplications = allApplications?.length || 0;
+
         setStats({
           activeOpportunities,
           totalOpportunities,
           completedOpportunities,
-          totalApplications: totalApplications || 0,
+          totalApplications,
         });
 
-        // Calcular contagem dinâmica de candidatos para cada oportunidade
-        const opportunitiesWithCandidatesCount = await Promise.all(
-          (opportunities || []).map(async (opp) => {
-            const { count, error: countError } = await supabase
-              .from('opportunity_applications')
-              .select('*', { count: 'exact', head: true })
-              .eq('opportunity_id', opp.id);
+        // Calcular contagem agrupando no cliente
+        const applicationCounts = (allApplications || []).reduce((acc, app) => {
+          acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
 
-            if (countError) {
-              console.error('Erro ao buscar contagem de candidatos:', countError);
-            }
-
-            return {
-              ...opp,
-              candidates_count: count || 0
-            };
-          })
-        );
+        const opportunitiesWithCandidatesCount = (opportunities || []).map((opp) => ({
+          ...opp,
+          candidates_count: applicationCounts[opp.id] || 0
+        }));
 
         // Pegar as 5 oportunidades mais recentes com contagem atualizada
         setRecentOpportunities(opportunitiesWithCandidatesCount.slice(0, 5));
@@ -231,35 +225,29 @@ const AnalystOverview: React.FC = () => {
           const activeOpportunities = opportunities?.filter(op => op.status === 'ativo').length || 0;
           const completedOpportunities = opportunities?.filter(op => op.status === 'concluido').length || 0;
 
-          const { count: totalApplications } = await supabase
+          const { data: allApplications } = await supabase
             .from('opportunity_applications')
-            .select('*', { count: 'exact', head: true })
+            .select('opportunity_id')
             .in('opportunity_id', opportunities?.map(op => op.id) || []);
+
+          const totalApplications = allApplications?.length || 0;
 
           setStats({
             activeOpportunities,
             totalOpportunities: opportunities?.length || 0,
             completedOpportunities,
-            totalApplications: totalApplications || 0,
+            totalApplications,
           });
 
-          const opportunitiesWithCandidatesCount = await Promise.all(
-            (opportunities || []).map(async (opp) => {
-              const { count, error: countError } = await supabase
-                .from('opportunity_applications')
-                .select('*', { count: 'exact', head: true })
-                .eq('opportunity_id', opp.id);
+          const applicationCounts = (allApplications || []).reduce((acc, app) => {
+            acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
 
-              if (countError) {
-                console.error('Erro ao buscar contagem de candidatos:', countError);
-              }
-
-              return {
-                ...opp,
-                candidates_count: count || 0
-              };
-            })
-          );
+          const opportunitiesWithCandidatesCount = (opportunities || []).map((opp) => ({
+            ...opp,
+            candidates_count: applicationCounts[opp.id] || 0
+          }));
 
           setRecentOpportunities(opportunitiesWithCandidatesCount.slice(0, 5));
         } catch (error) {
