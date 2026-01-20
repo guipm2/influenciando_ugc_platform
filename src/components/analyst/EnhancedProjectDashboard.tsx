@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
 import { useRouter } from '../../hooks/useRouter';
 import { useTabVisibility } from '../../hooks/useTabVisibility';
+import { formatRelativeTime } from '../../utils/formatters';
 
 interface ProjectDashboardStats {
   // Project stats
@@ -146,6 +147,7 @@ const EnhancedProjectDashboard: React.FC = () => {
           creator_id,
           status,
           applied_at,
+          updated_at,
           opportunity:opportunities!inner(
             id,
             title,
@@ -182,7 +184,8 @@ const EnhancedProjectDashboard: React.FC = () => {
           status,
           priority,
           estimated_hours,
-          created_at
+          created_at,
+          updated_at
         `)
         .eq('analyst_id', user.id);
 
@@ -190,6 +193,18 @@ const EnhancedProjectDashboard: React.FC = () => {
         console.error('Erro ao buscar deliverables:', deliverablesError);
         return;
       }
+
+      // Fetch conversations for last message activity
+      const opportunityIds = (projectsData || []).map(p => {
+        const opportunity = Array.isArray(p.opportunity) ? p.opportunity[0] : p.opportunity;
+        return opportunity.id;
+      });
+
+      const { data: conversationsData } = await supabase
+        .from('conversations')
+        .select('opportunity_id, last_message_at')
+        .in('opportunity_id', opportunityIds)
+        .eq('analyst_id', user.id);
 
       // Process projects with deliverables
       const projectsWithDeliverables = (projectsData || []).map(project => {
@@ -216,6 +231,33 @@ const EnhancedProjectDashboard: React.FC = () => {
         else if (isOverdue) status = 'overdue';
         else if (isAtRisk) status = 'at_risk';
 
+        // Calculate last activity
+        let lastActivity = new Date(project.applied_at).getTime();
+
+        if (project.updated_at) {
+          const projectUpdated = new Date(project.updated_at).getTime();
+          if (projectUpdated > lastActivity) {
+            lastActivity = projectUpdated;
+          }
+        }
+
+        // Check deliverables
+        projectDeliverables.forEach(d => {
+          const updatedTime = new Date(d.updated_at || d.created_at).getTime();
+          if (updatedTime > lastActivity) {
+            lastActivity = updatedTime;
+          }
+        });
+
+        // Check messages (conversations)
+        const conversation = conversationsData?.find(c => c.opportunity_id === opportunity.id);
+        if (conversation?.last_message_at) {
+          const messageTime = new Date(conversation.last_message_at).getTime();
+          if (messageTime > lastActivity) {
+            lastActivity = messageTime;
+          }
+        }
+
         return {
           id: project.id,
           opportunity_id: opportunity.id,
@@ -234,7 +276,7 @@ const EnhancedProjectDashboard: React.FC = () => {
           deliverables_total: projectDeliverables.length,
           deliverables_completed: completedDeliverables,
           deliverables_overdue: overdueDeliverables,
-          last_activity: project.applied_at, // TODO: Get actual last activity
+          last_activity: new Date(lastActivity).toISOString(),
           estimated_hours: projectDeliverables.reduce((sum, d) => sum + (d.estimated_hours || 0), 0),
           spent_hours: 0 // TODO: Implement time tracking
         };
@@ -757,6 +799,10 @@ const EnhancedProjectDashboard: React.FC = () => {
                       <div className="flex items-center text-sm text-gray-600">
                         <DollarSign className="h-4 w-4 mr-2" />
                         R$ {(project.budget_min / 1000).toFixed(0)}k - R$ {(project.budget_max / 1000).toFixed(0)}k
+                      </div>
+                      <div className="flex items-center text-sm text-gray-500">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Atividade: {formatRelativeTime(project.last_activity)}
                       </div>
                     </div>
                     
