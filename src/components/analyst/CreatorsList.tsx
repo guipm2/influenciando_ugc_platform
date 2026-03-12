@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Filter, MapPin, Users, ExternalLink, Grid3X3, List, X, Phone, Calendar, Globe, MessageCircle, Mail } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { getInitial } from '../../utils/formatters';
 import { useTabVisibility } from '../../hooks/useTabVisibility';
 import ModalPortal from '../common/ModalPortal';
 
@@ -34,18 +35,7 @@ const CreatorsList: React.FC<CreatorsListProps> = ({ onOpenConversation }) => {
   const [showContactModal, setShowContactModal] = useState<string | null>(null);
   const { profile: analyst } = useAnalystAuth();
 
-  useEffect(() => {
-    fetchCreators();
-  }, []);
-
-  // Recarregar quando a aba voltar a ficar visível
-  useTabVisibility(() => {
-    console.log('🔄 [ANALYST CREATORS] Recarregando creators após aba voltar a ficar visível');
-    setLoading(true);
-    fetchCreators();
-  });
-
-  const fetchCreators = async () => {
+  const fetchCreators = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -63,7 +53,16 @@ const CreatorsList: React.FC<CreatorsListProps> = ({ onOpenConversation }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchCreators();
+  }, [fetchCreators]);
+
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
+  useTabVisibility(() => {
+    fetchCreators();
+  });
 
   const filteredCreators = creators.filter(creator => {
     const matchesSearch = creator.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -237,7 +236,7 @@ const CreatorsList: React.FC<CreatorsListProps> = ({ onOpenConversation }) => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-sm font-bold flex-shrink-0">
-                    {creator.name?.charAt(0) || creator.email?.charAt(0).toUpperCase()}
+                    {getInitial(creator.name, creator.email)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -321,7 +320,7 @@ const CreatorsList: React.FC<CreatorsListProps> = ({ onOpenConversation }) => {
                 {/* Profile Header */}
                 <div className="text-center mb-4">
                   <div className="w-16 h-16 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-xl font-bold mx-auto mb-3">
-                    {creator.name?.charAt(0) || creator.email?.charAt(0).toUpperCase()}
+                    {getInitial(creator.name, creator.email)}
                   </div>
                   <h3 className="font-semibold text-gray-900">{creator.name || 'Nome não informado'}</h3>
                   <p className="text-gray-600 text-sm">{creator.email}</p>
@@ -393,7 +392,7 @@ const CreatorsList: React.FC<CreatorsListProps> = ({ onOpenConversation }) => {
               <div className="p-6 space-y-6">
                 <div className="text-center">
                   <div className="w-24 h-24 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-2xl font-bold mx-auto mb-4">
-                    {selectedCreator.name?.charAt(0) || selectedCreator.email?.charAt(0).toUpperCase()}
+                    {getInitial(selectedCreator.name, selectedCreator.email)}
                   </div>
                   <h3 className="text-2xl font-bold text-gray-900">{selectedCreator.name || 'Nome não informado'}</h3>
                   <p className="text-gray-600">{selectedCreator.email}</p>

@@ -161,7 +161,28 @@ export const AnalystAuthProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setLoading(false);
     };
 
+    // Auth state change listener
+    // IMPORTANTE: callback NÃO é async para não bloquear o lock interno do auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // TOKEN_REFRESHED: apenas atualizar referência interna, NÃO re-buscar perfil
+      if (event === 'TOKEN_REFRESHED') {
+        // O user não muda durante refresh de token — nada a fazer
+        return;
+      }
+
+      if (event === 'SIGNED_OUT') {
+        setProfile(null);
+        setUser(null);
+        setAnalyst(null);
+        setLoading(false);
+      }
+    });
+
     getSession();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -351,7 +372,10 @@ export const AnalystAuthProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return { error: 'Insira a chave secreta fornecida pela administração.' };
       }
 
-      const expectedSecret = (import.meta.env.VITE_ANALYST_SIGNUP_SECRET ?? 'default-secret-change-me').trim();
+      const expectedSecret = import.meta.env.VITE_ANALYST_SIGNUP_SECRET?.trim();
+      if (!expectedSecret) {
+        return { error: 'Configuração do sistema incompleta. Contate o administrador.' };
+      }
 
       if (trimmedSecret !== expectedSecret) {
         return { error: 'Chave secreta inválida. Verifique com a administração.' };
@@ -416,15 +440,23 @@ export const AnalystAuthProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       });
       
-      sessionStorage.clear();
-      
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.includes('supabase') || key.includes('auth')) {
+          sessionStorage.removeItem(key);
+        }
+      });
+
       // Força redirecionamento para landing page
       router.navigate('/');
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
       // Mesmo com erro, força limpeza e redirecionamento
       localStorage.clear();
-      sessionStorage.clear();
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.includes('supabase') || key.includes('auth')) {
+          sessionStorage.removeItem(key);
+        }
+      });
       router.navigate('/');
     }
   };

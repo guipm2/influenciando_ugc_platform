@@ -1,3 +1,6 @@
+export const getInitial = (name?: string | null, email?: string | null): string =>
+  (name?.charAt(0) || email?.charAt(0) || '?').toUpperCase();
+
 const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 export const detectDocumentType = (value: string): 'cpf' | 'cnpj' | null => {

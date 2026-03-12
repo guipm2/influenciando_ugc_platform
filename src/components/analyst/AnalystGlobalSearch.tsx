@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Target, Users, Building, MessageCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { useDebounce } from '../../hooks/useDebounce';
 
 interface SearchResult {
   id: string;
@@ -20,6 +21,7 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
   placeholder = "Pesquisar criadores, oportunidades..." 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -48,7 +50,7 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
         const { data: creators } = await supabase
           .from('profiles')
           .select('*')
-          .or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,bio.ilike.%${searchTerm}%,niche.ilike.%${searchTerm}%`)
+          .or(`name.ilike.%${debouncedSearchTerm}%,email.ilike.%${debouncedSearchTerm}%,bio.ilike.%${debouncedSearchTerm}%,niche.ilike.%${debouncedSearchTerm}%`)
           .limit(8);
 
         const results: SearchResult[] = [];
@@ -74,7 +76,7 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
         const { data: opportunities } = await supabase
           .from('opportunities')
           .select('*')
-          .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
+          .or(`title.ilike.%${debouncedSearchTerm}%,description.ilike.%${debouncedSearchTerm}%`)
           .eq('analyst_id', analyst.id)
           .limit(5);
 
@@ -116,7 +118,7 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
         const { data: companies } = await supabase
           .from('opportunities')
           .select('company')
-          .ilike('company', `%${searchTerm}%`)
+          .ilike('company', `%${debouncedSearchTerm}%`)
           .eq('status', 'ativo');
 
         if (companies) {
@@ -147,16 +149,16 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [analyst, searchTerm]);
+  }, [analyst, debouncedSearchTerm]);
 
   useEffect(() => {
-    if (searchTerm.length >= 2) {
+    if (debouncedSearchTerm.length >= 2) {
       performSearch();
     } else {
       setResults([]);
       setIsOpen(false);
     }
-  }, [searchTerm, performSearch]);
+  }, [debouncedSearchTerm, performSearch]);
 
   const getIcon = (type: string) => {
     switch (type) {

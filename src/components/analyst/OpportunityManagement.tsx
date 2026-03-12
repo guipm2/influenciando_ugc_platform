@@ -321,10 +321,9 @@ const OpportunityManagement: React.FC = () => {
 
   useAutoRefresh(() => fetchOpportunities({ silent: true }), 20000, true);
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(() => {
-    console.log('🔄 [ANALYST OPPORTUNITIES] Recarregando oportunidades após aba voltar a ficar visível');
-    fetchOpportunities();
+    fetchOpportunities({ silent: true });
   });
 
   const handleCreateOpportunity = async (opportunityData: NewOpportunityPayload) => {
@@ -423,7 +422,8 @@ const OpportunityManagement: React.FC = () => {
       const { error } = await supabase
         .from('opportunities')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('created_by', profile?.id);
 
       if (error) {
         console.error('Erro ao excluir oportunidade:', error);

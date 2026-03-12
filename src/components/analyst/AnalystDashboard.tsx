@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { LayoutDashboard, Target, Users, MessageCircle, Package, FolderOpen, CheckSquare } from 'lucide-react';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { getInitial } from '../../utils/formatters';
 import { useRouter } from '../../hooks/useRouter';
 import AnalystGlobalSearch from './AnalystGlobalSearch';
 import AnalystRouter from './AnalystRouter';
@@ -105,7 +106,7 @@ const AnalystDashboard: React.FC<AnalystDashboardProps> = ({
               className="group flex w-full items-center justify-start gap-3 rounded-2xl bg-white/5 px-4 py-3 text-left transition-all duration-300 hover:bg-white/10"
             >
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#00FF41] to-[#00CC34] text-sm font-semibold text-black shadow-neon-sm">
-                {profile?.name?.charAt(0) || profile?.email?.charAt(0).toUpperCase()}
+                {getInitial(profile?.name, profile?.email)}
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-white">{profile?.name}</div>
@@ -171,7 +172,7 @@ const AnalystDashboard: React.FC<AnalystDashboardProps> = ({
                 className="group flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 transition hover:bg-white/10"
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#00FF41] to-[#00CC34] text-sm font-semibold text-black shadow-neon-sm">
-                  {profile?.name?.charAt(0) || profile?.email?.charAt(0).toUpperCase()}
+                  {getInitial(profile?.name, profile?.email)}
                 </div>
                 <div className="text-left">
                   <div className="text-sm font-semibold text-white">{profile?.name}</div>

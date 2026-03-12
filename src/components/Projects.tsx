@@ -289,39 +289,61 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
         return;
       }
 
-      const projectsData = [];
-      
-      for (const app of applications || []) {
-        const opportunity = Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity;
-        
-        if (!opportunity) continue;
+      const validApps = (applications || []).map(app => ({
+        ...app,
+        opportunity: Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity,
+      })).filter(app => app.opportunity);
 
-        // Buscar conversa relacionada
-        const { data: conversation, error: conversationError } = await supabase
+      // Batch: buscar todas as conversas de uma vez
+      const appOpportunityIds = validApps.map(a => a.opportunity_id);
+      const appIds = validApps.map(a => a.id);
+
+      const [conversationsResult, deliverablesResult] = await Promise.all([
+        supabase
           .from('conversations')
-          .select('id')
-          .eq('opportunity_id', app.opportunity_id)
+          .select('id, opportunity_id, analyst_id')
           .eq('creator_id', user.id)
-          .eq('analyst_id', opportunity.created_by)
-          .maybeSingle();
-
-        if (conversationError) {
-          console.error('❌ [PROJECTS] Erro ao buscar conversa:', conversationError);
-        }
-
-        // Buscar deliverables cadastrados no banco para esta candidatura
-        const { data: dbDeliverables, error: deliverablesError } = await supabase
+          .in('opportunity_id', appOpportunityIds),
+        supabase
           .from('project_deliverables')
           .select('*')
-          .eq('application_id', app.id)
-          .order('priority', { ascending: true });
+          .in('application_id', appIds)
+          .order('priority', { ascending: true }),
+      ]);
 
-        if (deliverablesError) {
-          console.error('❌ [PROJECTS] Erro ao buscar deliverables:', deliverablesError);
-        }
+      if (conversationsResult.error) {
+        console.error('❌ [PROJECTS] Erro ao buscar conversas:', conversationsResult.error);
+      }
+      if (deliverablesResult.error) {
+        console.error('❌ [PROJECTS] Erro ao buscar deliverables:', deliverablesResult.error);
+      }
 
-        // Mapear deliverables vindos do banco para a interface local
-        const mappedDbDeliverables: Deliverable[] = (dbDeliverables ?? []).map(mapDeliverableFromDb);
+      // Criar lookup maps
+      const conversationsMap = new Map<string, string>();
+      for (const conv of conversationsResult.data || []) {
+        const key = `${conv.opportunity_id}:${conv.analyst_id}`;
+        conversationsMap.set(key, conv.id);
+      }
+
+      const deliverablesMap = new Map<string, typeof deliverablesResult.data>();
+      for (const del of deliverablesResult.data || []) {
+        const existing = deliverablesMap.get(del.application_id) || [];
+        existing.push(del);
+        deliverablesMap.set(del.application_id, existing);
+      }
+
+      const projectsData = [];
+
+      for (const app of validApps) {
+        const opportunity = app.opportunity;
+
+        // Lookup na Map em vez de query individual
+        const conversationKey = `${app.opportunity_id}:${opportunity.created_by}`;
+        const conversationId = conversationsMap.get(conversationKey) || '';
+
+        // Lookup deliverables na Map
+        const dbDeliverables = deliverablesMap.get(app.id) || [];
+        const mappedDbDeliverables: Deliverable[] = dbDeliverables.map(mapDeliverableFromDb);
 
         // Extract rating if exists
         const appWithRatings = app as unknown as { project_ratings: { rating: number; feedback: string }[] | null };
@@ -362,7 +384,7 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
           db_status: app.status,
           content_type: opportunity.content_type,
           budget: `R$ ${opportunity.budget?.toFixed(2) || '0.00'}`,
-          conversation_id: conversation?.id || '',
+          conversation_id: conversationId,
           deliverables: allDeliverables,
           created_at: new Date().toISOString(),
           opportunity: {
@@ -416,25 +438,10 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
 
   useAutoRefresh(() => fetchProjects({ silent: true }), 25000, Boolean(user));
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(async () => {
     if (!user) return;
-    
-    console.log('🔄 [PROJECTS] Recarregando projetos após aba voltar a ficar visível');
-    
-    // Validar sessão antes de recarregar
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('⚠️ [PROJECTS] Sessão inválida ao tentar recarregar');
-        return;
-      }
-    } catch (err) {
-      console.error('❌ [PROJECTS] Erro ao validar sessão:', err);
-      return;
-    }
-    
-    await fetchProjects({ force: true });
+    await fetchProjects({ silent: true, force: true });
   });
 
   const getProjectStatus = (deadline: string, deliverables?: Deliverable[]): 'em_andamento' | 'entregue' | 'aprovado' | 'atrasado' => {

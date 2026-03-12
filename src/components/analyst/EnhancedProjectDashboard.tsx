@@ -496,9 +496,8 @@ const EnhancedProjectDashboard: React.FC = () => {
     fetchDashboardStats();
   }, [fetchDashboardStats]);
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(() => {
-    console.log('🔄 [ANALYST PROJECTS] Recarregando dashboard de projetos após aba voltar a ficar visível');
     fetchDashboardStats();
   });
 

@@ -15,6 +15,7 @@ import AnalystLoginPage from './components/auth/AnalystLoginPage';
 import EmailConfirmationPage from './components/auth/EmailConfirmationPage';
 import AnalystDashboard from './components/analyst/AnalystDashboard';
 import LandingPage from './components/LandingPage';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 function AnalystApp() {
   const { profile, loading } = useAnalystAuth();
@@ -469,7 +470,9 @@ function App() {
   if (currentPath.startsWith('/analysts')) {
     return (
       <AnalystAuthProvider>
-        <AnalystApp />
+        <ErrorBoundary>
+          <AnalystApp />
+        </ErrorBoundary>
       </AnalystAuthProvider>
     );
   }
@@ -478,7 +481,9 @@ function App() {
   if (currentPath.startsWith('/creators')) {
     return (
       <AuthProvider>
-        <CreatorApp />
+        <ErrorBoundary>
+          <CreatorApp />
+        </ErrorBoundary>
       </AuthProvider>
     );
   }

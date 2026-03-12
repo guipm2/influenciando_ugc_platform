@@ -130,13 +130,11 @@ const AnalystAccountSettings = () => {
           throw new Error('Analista não encontrado para fallback');
         }
         
-        // Deletar dados relacionados manualmente
-        await Promise.all([
-          supabase.from('opportunities').delete().eq('analyst_id', analyst.id),
-          supabase.from('conversations').delete().eq('analyst_id', analyst.id),
-          supabase.from('messages').delete().eq('sender_id', analyst.id),
-          supabase.from('notifications').delete().eq('user_id', analyst.id)
-        ]);
+        // Deletar dados relacionados sequencialmente (ordem de dependência)
+        await supabase.from('notifications').delete().eq('user_id', analyst.id);
+        await supabase.from('messages').delete().eq('sender_id', analyst.id);
+        await supabase.from('conversations').delete().eq('analyst_id', analyst.id);
+        await supabase.from('opportunities').delete().eq('analyst_id', analyst.id);
         await supabase.from('analysts').delete().eq('id', analyst.id);
         
         // Deletar perfil

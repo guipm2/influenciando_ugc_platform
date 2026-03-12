@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Target, Users, TrendingUp, Eye, ArrowRight, Calendar, Folder } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
@@ -58,11 +58,11 @@ const AnalystOverview: React.FC = () => {
   const [selectedOpportunity, setSelectedOpportunity] = useState<RecentOpportunity | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!user) return;
 
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
 
       // Buscar estatísticas das oportunidades com count de aplicações em uma única query (otimização)
       const { data: opportunitiesData, error: opportunitiesError } = await supabase
@@ -111,11 +111,11 @@ const AnalystOverview: React.FC = () => {
     }
   }, [user]);
 
-  const fetchUpcomingProjects = useCallback(async () => {
+  const fetchUpcomingProjects = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!user) return;
 
     try {
-      setLoadingProjects(true);
+      if (!silent) setLoadingProjects(true);
 
       // Buscar projetos aprovados (candidaturas aprovadas) com prazos próximos
       const thirtyDaysFromNow = new Date();
@@ -195,17 +195,16 @@ const AnalystOverview: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      loadDashboardData();
+      fetchDashboardData();
       fetchUpcomingProjects();
     }
   }, [user, fetchDashboardData, fetchUpcomingProjects]);
 
-  // Recarregar dados quando a aba voltar a ficar visível
+  // Recarregar dados silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(() => {
     if (user) {
-      console.log('🔄 [ANALYST OVERVIEW] Recarregando dados após aba voltar a ficar visível');
-      fetchDashboardData();
-      fetchUpcomingProjects();
+      fetchDashboardData({ silent: true });
+      fetchUpcomingProjects({ silent: true });
     }
   });
 
@@ -236,36 +235,36 @@ const AnalystOverview: React.FC = () => {
     }
   };
 
-  const dashboardStats = [
-    { 
-      label: 'Oportunidades Ativas', 
-      value: loading ? '...' : stats.activeOpportunities.toString(), 
-      icon: Target, 
-      color: 'text-[#00FF41]', 
-      bg: 'bg-[#00FF41]/10' 
+  const dashboardStats = useMemo(() => [
+    {
+      label: 'Oportunidades Ativas',
+      value: loading ? '...' : stats.activeOpportunities.toString(),
+      icon: Target,
+      color: 'text-[#00FF41]',
+      bg: 'bg-[#00FF41]/10'
     },
-    { 
-      label: 'Total de Candidaturas', 
-      value: loading ? '...' : stats.totalApplications.toString(), 
-      icon: Users, 
-      color: 'text-[#00FF41]', 
-      bg: 'bg-[#00FF41]/10' 
+    {
+      label: 'Total de Candidaturas',
+      value: loading ? '...' : stats.totalApplications.toString(),
+      icon: Users,
+      color: 'text-[#00FF41]',
+      bg: 'bg-[#00FF41]/10'
     },
-    { 
-      label: 'Campanhas Concluídas', 
-      value: loading ? '...' : stats.completedOpportunities.toString(), 
-      icon: TrendingUp, 
-      color: 'text-[#00FF41]', 
-      bg: 'bg-[#00FF41]/10' 
+    {
+      label: 'Campanhas Concluídas',
+      value: loading ? '...' : stats.completedOpportunities.toString(),
+      icon: TrendingUp,
+      color: 'text-[#00FF41]',
+      bg: 'bg-[#00FF41]/10'
     },
-    { 
-      label: 'Total de Oportunidades', 
-      value: loading ? '...' : stats.totalOpportunities.toString(), 
-      icon: Eye, 
-      color: 'text-orange-600', 
-      bg: 'bg-orange-100' 
+    {
+      label: 'Total de Oportunidades',
+      value: loading ? '...' : stats.totalOpportunities.toString(),
+      icon: Eye,
+      color: 'text-orange-600',
+      bg: 'bg-orange-100'
     }
-  ];
+  ], [loading, stats]);
 
   return (
     <div className="space-y-6">

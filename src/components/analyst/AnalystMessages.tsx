@@ -193,10 +193,10 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
 
           // Update last message if the current conversation's message is newer
           const existingMsgDate = existing.lastMessageCandidate ? new Date(existing.lastMessageCandidate.created_at) : null;
-          const currentMsgDate = lastMsg ? new Date(lastMsg.created_at) : null;
+          const currentMsgDate = lastMessage ? new Date(lastMessage.created_at) : null;
 
           if (currentMsgDate && (!existingMsgDate || currentMsgDate > existingMsgDate)) {
-             existing.lastMessageCandidate = lastMsg;
+             existing.lastMessageCandidate = lastMessage;
           }
         }
         
@@ -497,9 +497,8 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
 
   useAutoRefresh(fetchConversations, 20000, Boolean(analyst));
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(() => {
-    console.log('🔄 [ANALYST MESSAGES] Recarregando conversas após aba voltar a ficar visível');
     fetchConversations();
     if (selectedConversation?.id) {
       fetchMessages(selectedConversation.id);

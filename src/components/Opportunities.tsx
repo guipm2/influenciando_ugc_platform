@@ -338,23 +338,9 @@ const Opportunities: React.FC = () => {
 
   useAutoRefresh(() => fetchOpportunities({ silent: true }), 20000, true);
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(async () => {
-    console.log('🔄 [OPPORTUNITIES] Recarregando oportunidades após aba voltar a ficar visível');
-    
-    // Validar sessão antes de recarregar
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('⚠️ [OPPORTUNITIES] Sessão inválida ao tentar recarregar');
-        return;
-      }
-    } catch (err) {
-      console.error('❌ [OPPORTUNITIES] Erro ao validar sessão:', err);
-      return;
-    }
-    
-    await fetchOpportunities({ force: true });
+    await fetchOpportunities({ silent: true, force: true });
   });
 
   useEffect(() => {

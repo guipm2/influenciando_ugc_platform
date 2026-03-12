@@ -94,11 +94,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // IMPORTANTE: callback NÃO é async para não bloquear o lock interno do auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // TOKEN_REFRESHED: apenas atualizar session, NÃO re-buscar perfil
+      if (event === 'TOKEN_REFRESHED') {
+        if (session) {
+          setSession(session);
+        }
+        return;
+      }
+
       // Se não é a inicialização, processa mudanças de estado
       if (!isInitializing) {
         if (event === 'SIGNED_IN' && session?.user) {
-          await handleUserSession(session);
+          // Fire-and-forget: não bloqueia o lock do auth
+          handleUserSession(session).catch(err =>
+            console.error('[AUTH] Erro ao processar sessão:', err)
+          );
         } else if (event === 'SIGNED_OUT') {
           setProfile(null);
           setUser(null);
@@ -178,16 +190,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         
         if (!profileError) {
-          await new Promise(res => setTimeout(res, 300));
-          const { data: newProfile, error: newFetchError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', sessionId)
-            .maybeSingle();
-          
-          if (newFetchError) {
-            console.error('[AUTH] Erro ao buscar novo perfil:', newFetchError.message);
-            // Se falhou novamente, usa perfil de fallback
+          // Polling com backoff para aguardar o perfil ficar disponível
+          let newProfile = null;
+          for (let attempt = 1; attempt <= 5; attempt++) {
+            await new Promise(res => setTimeout(res, 200 * attempt));
+            const { data, error: fetchErr } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', sessionId)
+              .maybeSingle();
+            if (!fetchErr && data) {
+              newProfile = data;
+              break;
+            }
+            if (attempt < 5) {
+              console.log(`[AUTH] Perfil não encontrado, tentativa ${attempt}/5...`);
+            }
+          }
+
+          if (!newProfile) {
+            console.error('[AUTH] Perfil não encontrado após 5 tentativas');
             finalProfile = {
               id: sessionId,
               email: session.user.email || '',
@@ -361,15 +383,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
       
-      sessionStorage.clear();
-      
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.includes('supabase') || key.includes('auth')) {
+          sessionStorage.removeItem(key);
+        }
+      });
+
       // Força reload completo da página para limpar qualquer estado residual
       router.navigate('/');
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
       // Mesmo com erro, força limpeza e redirecionamento
       localStorage.clear();
-      sessionStorage.clear();
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.includes('supabase') || key.includes('auth')) {
+          sessionStorage.removeItem(key);
+        }
+      });
       router.navigate('/');
     }
   };

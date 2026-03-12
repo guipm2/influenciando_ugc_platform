@@ -147,12 +147,15 @@ export const fetchCreatorChats = async (supabase: SupabaseClient, userId: string
         .in('id', analystIdsArray)
         .returns<ProfileData[]>();
 
+    const analystLookup = new Map(analysts?.map(a => [a.id, a]) ?? []);
+    const profileLookup = new Map(profiles?.map(p => [p.id, p]) ?? []);
+
     analystIdsArray.forEach(id => {
-       const analyst = analysts?.find((a) => a.id === id);
+       const analyst = analystLookup.get(id);
        if (analyst) {
          analystsMap.set(id, { name: analyst.name, email: analyst.email, avatar_url: analyst.avatar_url });
        } else {
-         const profile = profiles?.find((p) => p.id === id);
+         const profile = profileLookup.get(id);
          if (profile) {
             analystsMap.set(id, { name: profile.full_name, email: profile.email, avatar_url: profile.avatar_url });
          } else {

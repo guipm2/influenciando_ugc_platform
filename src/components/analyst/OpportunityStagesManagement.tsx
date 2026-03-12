@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Package, Truck, FileText, Video, Edit, CheckCircle, Clock, Plus, Save, X, Eye, Grid3X3, List, MoreVertical, ChevronDown, ChevronRight, Users, UserCheck, User, MapPin, ExternalLink, Globe, Calendar, Mail, Phone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { getInitial } from '../../utils/formatters';
 
 interface OpportunityStage {
   id: string;
@@ -791,7 +792,7 @@ const OpportunityStagesManagement: React.FC = () => {
                                   className="w-10 h-10 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-sm font-bold hover:scale-105 transition-transform"
                                   title="Ver perfil completo"
                                 >
-                                  {creator.creator?.name?.charAt(0) || creator.creator?.email?.charAt(0).toUpperCase()}
+                                  {getInitial(creator.creator?.name, creator.creator?.email)}
                                 </button>
                                 <div>
                                   <button
@@ -1341,7 +1342,7 @@ const OpportunityStagesManagement: React.FC = () => {
               {/* Profile Header */}
               <div className="text-center">
                 <div className="w-24 h-24 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-2xl font-bold mx-auto mb-4">
-                  {selectedCreatorProfile.name?.charAt(0) || selectedCreatorProfile.email?.charAt(0).toUpperCase()}
+                  {getInitial(selectedCreatorProfile.name, selectedCreatorProfile.email)}
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900">{selectedCreatorProfile.name || 'Nome não informado'}</h3>
                 <p className="text-gray-600">{selectedCreatorProfile.email}</p>
