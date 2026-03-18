@@ -1,5 +1,5 @@
 import React from 'react';
-import { GraduationCap, Play, Clock, Star, Users, Lock } from 'lucide-react';
+import { Play, Clock, Star, Users, Lock } from 'lucide-react';
 
 const Training = () => {
   const courses = [

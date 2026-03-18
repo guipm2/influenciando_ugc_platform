@@ -32,6 +32,9 @@ interface AnalystAuthContextType {
   signOut: () => void;
 }
 
+const ANALYST_SIGNUP_VALIDATION_ENDPOINT =
+  (import.meta.env.VITE_ANALYST_SIGNUP_VALIDATION_ENDPOINT as string | undefined)?.trim() ?? '';
+
 const AnalystAuthContext = createContext<AnalystAuthContextType | undefined>(undefined);
 
 export function useAnalystAuth() {
@@ -351,10 +354,46 @@ export const AnalystAuthProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return { error: 'Insira a chave secreta fornecida pela administração.' };
       }
 
-      const expectedSecret = (import.meta.env.VITE_ANALYST_SIGNUP_SECRET ?? 'default-secret-change-me').trim();
+      if (!ANALYST_SIGNUP_VALIDATION_ENDPOINT) {
+        return {
+          error:
+            'Cadastro de analistas indisponível no momento. Configure a validação server-side para liberar este fluxo.'
+        };
+      }
 
-      if (trimmedSecret !== expectedSecret) {
-        return { error: 'Chave secreta inválida. Verifique com a administração.' };
+      let validationPayload: { allowed?: boolean; message?: string } | null = null;
+
+      try {
+        const validationResponse = await fetch(ANALYST_SIGNUP_VALIDATION_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            secretKey: trimmedSecret,
+            email,
+            name,
+            company
+          })
+        });
+
+        validationPayload = (await validationResponse.json().catch(() => null)) as {
+          allowed?: boolean;
+          message?: string;
+        } | null;
+
+        if (!validationResponse.ok || !validationPayload?.allowed) {
+          return {
+            error:
+              validationPayload?.message ??
+              'Chave secreta inválida. Verifique com a administração.'
+          };
+        }
+      } catch {
+        return {
+          error:
+            'Não foi possível validar a chave de cadastro no servidor. Tente novamente em instantes.'
+        };
       }
 
       // Cria o usuário com role analyst no user_metadata

@@ -42,6 +42,14 @@ interface UpcomingDeadline {
   description: string;
 }
 
+type ApplicationQueryRow = Omit<Application, 'opportunity'> & {
+  opportunity: Application['opportunity'] | Application['opportunity'][] | null;
+};
+
+type DeliverableQueryRow = Omit<Deliverable, 'opportunity'> & {
+  opportunities: Deliverable['opportunity'] | Deliverable['opportunity'][] | null;
+};
+
 const Dashboard = () => {
   const [applications, setApplications] = useState<Application[]>([]);
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
@@ -93,7 +101,7 @@ const Dashboard = () => {
         console.error('❌ [DASHBOARD] Erro ao recarregar candidaturas:', error);
         // NÃO limpa dados existentes
       } else if (data) {
-        const fixedData = data?.map((app: any) => ({
+        const fixedData = (data as ApplicationQueryRow[] | null)?.map((app) => ({
           ...app,
           opportunity: Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity
         })) || [];
@@ -129,7 +137,7 @@ const Dashboard = () => {
         console.error('❌ [DASHBOARD] Erro ao recarregar deliverables:', error);
         // NÃO limpa dados existentes
       } else if (data) {
-        const allDeliverables = data?.map((deliverable: any) => {
+        const allDeliverables = (data as DeliverableQueryRow[] | null)?.map((deliverable) => {
           const opportunity = Array.isArray(deliverable.opportunities) 
             ? deliverable.opportunities[0] 
             : deliverable.opportunities;

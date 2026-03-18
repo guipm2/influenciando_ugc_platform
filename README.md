@@ -74,8 +74,8 @@ VITE_SITE_URL=https://your-platform-domain.com
 # Webhooks (opcional)
 VITE_OPPORTUNITY_CREATED_WEBHOOK_URL=https://your-webhook-url.com/webhook/opportunity-created
 
-# Analyst Access Control
-VITE_ANALYST_SIGNUP_SECRET=your_secure_secret_key
+# Analyst Access Control (server-side)
+VITE_ANALYST_SIGNUP_VALIDATION_ENDPOINT=https://your-platform-domain.com/api/validate-analyst-signup
 ```
 
 ### 4. Configure o banco de dados

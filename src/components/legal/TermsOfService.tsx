@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, FileText, Shield, Users, Camera } from 'lucide-react';
+import { ArrowLeft, FileText, Users, Camera } from 'lucide-react';
 
 interface TermsOfServiceProps {
   onBack?: () => void;

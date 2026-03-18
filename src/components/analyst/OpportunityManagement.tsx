@@ -67,36 +67,6 @@ const OPPORTUNITY_CREATED_WEBHOOK_URL =
 
 type RawOpportunity = Partial<Opportunity> & Record<string, unknown>;
 
-const formatBudgetRange = (min?: number, max?: number): string => {
-  const hasMin = typeof min === 'number' && min > 0;
-  const hasMax = typeof max === 'number' && max > 0;
-  const formatCurrency = (value: number) =>
-    value.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    });
-
-  if (!hasMin && !hasMax) {
-    return 'Permuta';
-  }
-
-  if (hasMin && hasMax) {
-    if (min === max) {
-      return formatCurrency(min as number);
-    }
-
-    return `${formatCurrency(min as number)} - ${formatCurrency(max as number)}`;
-  }
-
-  if (hasMin) {
-    return `A partir de ${formatCurrency(min as number)}`;
-  }
-
-  return `Até ${formatCurrency(max as number)}`;
-};
-
 type DeadlineInfo = {
   formattedDate: string;
   statusText: string;

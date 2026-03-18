@@ -22,7 +22,9 @@ const useSimpleCollaborationData = () => ({
   unreadCount: 0,
   loading: false,
   error: null,
-  markActivityAsRead: (_activityId: string) => {},
+  markActivityAsRead: (activityId: string) => {
+    void activityId;
+  },
   markAllAsRead: () => {},
   refreshData: () => {},
   refetchActivities: () => {},

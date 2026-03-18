@@ -1,4 +1,4 @@
-import { PostgrestError } from '@supabase/supabase-js';
+import { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Configuração para retry de queries
@@ -82,7 +82,7 @@ export async function queryWithRetry<T>(
  * Verifica se a sessão do Supabase ainda é válida
  * e tenta fazer refresh se necessário
  */
-export async function ensureValidSession(supabase: any): Promise<boolean> {
+export async function ensureValidSession(supabase: SupabaseClient): Promise<boolean> {
   try {
     const { data: { session }, error } = await supabase.auth.getSession();
     

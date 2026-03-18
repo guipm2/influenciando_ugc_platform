@@ -35,6 +35,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+
 export type Database = {
   public: {
     Tables: {
@@ -105,7 +107,7 @@ export type Database = {
           budget_max: number;
           location: string;
           content_type: string;
-          requirements: any;
+          requirements: Json;
           deadline: string;
           status: string;
           candidates_count: number | null;
@@ -123,7 +125,7 @@ export type Database = {
           budget_max: number;
           location?: string;
           content_type: string;
-          requirements?: any;
+          requirements?: Json;
           deadline: string;
           status?: string;
           candidates_count?: number | null;
@@ -141,7 +143,7 @@ export type Database = {
           budget_max?: number;
           location?: string;
           content_type?: string;
-          requirements?: any;
+          requirements?: Json;
           deadline?: string;
           status?: string;
           candidates_count?: number | null;
@@ -215,7 +217,7 @@ export type Database = {
           type: string;
           title: string;
           message: string;
-          data: any;
+          data: Json;
           read: boolean;
           created_at: string;
         };
@@ -225,7 +227,7 @@ export type Database = {
           type: string;
           title: string;
           message: string;
-          data?: any;
+          data?: Json;
           read?: boolean;
           created_at?: string;
         };
@@ -235,7 +237,7 @@ export type Database = {
           type?: string;
           title?: string;
           message?: string;
-          data?: any;
+          data?: Json;
           read?: boolean;
           created_at?: string;
         };

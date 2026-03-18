@@ -73,29 +73,6 @@ const DEFAULT_LOGO =
 
 const OPPORTUNITY_STATUSES: DbOpportunityStatus[] = ['ativo', 'pausado', 'encerrado'];
 
-const formatBudgetRange = (min?: number | null, max?: number | null) => {
-  const parsedMin = Number.isFinite(min) ? Number(min) : 0;
-  const parsedMax = Number.isFinite(max) ? Number(max) : 0;
-
-  if (!parsedMin && !parsedMax) {
-    return 'Permuta';
-  }
-
-  if (!parsedMin) {
-    return `Até R$ ${parsedMax.toLocaleString('pt-BR')}`;
-  }
-
-  if (!parsedMax) {
-    return `A partir de R$ ${parsedMin.toLocaleString('pt-BR')}`;
-  }
-
-  if (parsedMin === parsedMax) {
-    return `R$ ${parsedMin.toLocaleString('pt-BR')}`;
-  }
-
-  return `R$ ${parsedMin.toLocaleString('pt-BR')} - R$ ${parsedMax.toLocaleString('pt-BR')}`;
-};
-
 const getDeadlineMeta = (deadline?: string | null, rawStatus?: DbOpportunityStatus | null) => {
   const statusIndicatesClosure = rawStatus ? rawStatus !== 'ativo' : false;
 

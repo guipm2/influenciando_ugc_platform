@@ -153,12 +153,6 @@ const OpportunityDetailsPage: React.FC<OpportunityDetailsPageProps> = ({ opportu
     }
   };
 
-  const formatBudget = (min: number, max: number) => {
-    if (min === 0 && max === 0) return 'Permuta';
-    if (min === max) return `R$ ${min.toLocaleString('pt-BR')}`;
-    return `R$ ${min.toLocaleString('pt-BR')} - R$ ${max.toLocaleString('pt-BR')}`;
-  };
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('pt-BR', {
       day: '2-digit',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { HelpCircle, MessageCircle, Mail, Phone, FileText } from 'lucide-react';
+import { MessageCircle, Mail, Phone, FileText } from 'lucide-react';
 
 const Help = () => {
   const faqs = [
