@@ -94,6 +94,26 @@ npm run dev
 
 Acesse `http://localhost:5173` no seu navegador.
 
+## ☁️ Deploy na Vercel
+
+### 1. Importar projeto
+- Conecte este repositório na Vercel.
+
+### 2. Configurar build
+- **Framework Preset**: `Vite`
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+
+### 3. Configurar variáveis de ambiente
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_SITE_URL`
+- `VITE_OPPORTUNITY_CREATED_WEBHOOK_URL` (se usar webhook)
+- `VITE_ANALYST_SIGNUP_VALIDATION_ENDPOINT`
+
+### 4. SPA Routing
+Este projeto usa roteamento client-side com `history.pushState` e já possui rewrite global em `vercel.json` para direcionar rotas para `index.html`.
+
 ## 📁 Estrutura do Projeto
 
 ```
