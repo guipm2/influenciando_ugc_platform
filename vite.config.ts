@@ -24,11 +24,21 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Code splitting inteligente
-          'vendor': ['react', 'react-dom'],
-          'supabase': ['@supabase/supabase-js'],
-          'ui': ['lucide-react', 'framer-motion']
+        // Vite 8 (Rolldown) expects manualChunks as a function.
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor';
+          }
+
+          if (id.includes('node_modules/@supabase/supabase-js')) {
+            return 'supabase';
+          }
+
+          if (id.includes('node_modules/lucide-react') || id.includes('node_modules/framer-motion')) {
+            return 'ui';
+          }
+
+          return undefined;
         }
       }
     }
