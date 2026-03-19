@@ -20,6 +20,7 @@ import { useTabVisibility } from '../../hooks/useTabVisibility';
 import { resolveSiteUrl } from '../../utils/siteUrl';
 import { normalizeCompanyLink } from '../../utils/formatters';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
+import { createSquareThumbnail } from '../../utils/imageUtils';
 import CreateOpportunityModal from './CreateOpportunityModal';
 import ApplicationsModal from './ApplicationsModal';
 import ViewOpportunityModal from './ViewOpportunityModal';
@@ -332,16 +333,12 @@ const OpportunityManagement: React.FC = () => {
         // Upload de imagens se houver
         if (images && images.length > 0) {
           try {
-            // Importar dinamicamente as funções de upload
-            const { supabase: supabaseClient } = await import('../../lib/supabase');
-            const { createSquareThumbnail } = await import('../../utils/imageUtils');
-            
             for (let i = 0; i < images.length; i++) {
               const file = images[i];
               const optimizedBlob = await createSquareThumbnail(file, 800);
               const fileName = `${createdOpportunity.id}/${Date.now()}-${i}.webp`;
               
-              const { error: uploadError } = await supabaseClient.storage
+              const { error: uploadError } = await supabase.storage
                 .from('opportunity-images')
                 .upload(fileName, optimizedBlob, {
                   contentType: 'image/webp',
@@ -355,14 +352,14 @@ const OpportunityManagement: React.FC = () => {
               }
               
               // Gerar URL assinada (válida por 1 ano)
-              const { data: signedUrlData } = await supabaseClient.storage
+              const { data: signedUrlData } = await supabase.storage
                 .from('opportunity-images')
                 .createSignedUrl(fileName, 31536000);
               
               const publicUrl = signedUrlData?.signedUrl || '';
               console.log('URL assinada gerada:', publicUrl);
               
-              await supabaseClient
+              await supabase
                 .from('opportunity_images')
                 .insert({
                   opportunity_id: createdOpportunity.id,

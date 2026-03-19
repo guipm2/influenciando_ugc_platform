@@ -10,7 +10,9 @@ export default defineConfig({
   build: {
     // Compatibilidade com navegadores mais antigos
     target: ['es2015', 'edge88', 'firefox78', 'chrome87', 'safari13'],
-    polyfillModulePreload: true,
+    modulePreload: {
+      polyfill: true
+    },
     cssTarget: ['chrome87', 'safari13', 'firefox78'],
     // Otimizações
     minify: 'terser',
