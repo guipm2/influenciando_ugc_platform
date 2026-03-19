@@ -37,6 +37,18 @@ interface UnifiedConversation {
   tags?: string[] | null;
 }
 
+interface MessageCandidate {
+  content: string;
+  sender_type: 'analyst' | 'creator';
+  created_at: string;
+  message_type: 'general' | 'project' | 'system';
+  project_context?: string;
+}
+
+interface UnifiedConversationWithCandidate extends UnifiedConversation {
+  lastMessageCandidate?: MessageCandidate;
+}
+
 interface Message {
   id: string;
   conversation_id: string;
@@ -48,6 +60,27 @@ interface Message {
   message_type: 'general' | 'project' | 'system';
   project_context?: string; // opportunity_id if message is about specific project
   project_title?: string; // For display purposes
+}
+
+interface ConversationQueryResult {
+  id: string;
+  analyst_id: string;
+  creator_id: string;
+  created_at: string;
+  last_message_at: string;
+  custom_title: string | null;
+  tags: string[] | null;
+  creator: {
+    name: string;
+    email: string;
+  };
+  messages: {
+    content: string;
+    sender_type: 'analyst' | 'creator';
+    created_at: string;
+    message_type: 'general' | 'project' | 'system';
+    project_context?: string;
+  }[];
 }
 
 interface AnalystMessagesProps {
@@ -94,9 +127,18 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
           creator:profiles!creator_id (
             name,
             email
+          ),
+          messages (
+            content,
+            sender_type,
+            created_at,
+            message_type,
+            project_context
           )
         `)
         .eq('analyst_id', analyst.id)
+        .order('created_at', { foreignTable: 'messages', ascending: false })
+        .limit(1, { foreignTable: 'messages' })
         .order('last_message_at', { ascending: false });
 
       if (convError) {
@@ -105,10 +147,14 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
       }
 
       // Step 2: Group conversations by creator and collect all conversation IDs
-      const creatorConversations = new Map();
-      const allConversationsByCreator = new Map();
+      const creatorConversations = new Map<string, UnifiedConversationWithCandidate>();
+      const allConversationsByCreator = new Map<string, string[]>();
       
-      for (const conv of conversationData || []) {
+      const typedConversationData = (conversationData || []) as unknown as ConversationQueryResult[];
+
+      for (const conv of typedConversationData) {
+        const lastMessage = conv.messages?.[0];
+
         if (!creatorConversations.has(conv.creator_id)) {
           creatorConversations.set(conv.creator_id, {
             id: conv.id, // Use the first conversation ID as the unified conversation ID
@@ -120,92 +166,112 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
             projects: [],
             unread_count: 0,
             custom_title: conv.custom_title,
-            tags: conv.tags
+            tags: conv.tags,
+            lastMessage: lastMessage
           });
           allConversationsByCreator.set(conv.creator_id, []);
         } else {
           // Update last_message_at if this conversation is more recent
-          const existing = creatorConversations.get(conv.creator_id);
+          const existing = creatorConversations.get(conv.creator_id)!;
           const existingDate = existing.last_message_at ? new Date(existing.last_message_at) : null;
           const currentDate = conv.last_message_at ? new Date(conv.last_message_at) : null;
+
           if (currentDate && (!existingDate || currentDate > existingDate)) {
             existing.id = conv.id;
             existing.last_message_at = conv.last_message_at;
             existing.custom_title = conv.custom_title;
             existing.tags = conv.tags;
+            existing.messages = conv.messages;
+          }
+
+          // Update lastMessage if the one from this conversation is more recent
+          if (lastMessage) {
+            if (!existing.lastMessage || new Date(lastMessage.created_at) > new Date(existing.lastMessage.created_at)) {
+              existing.lastMessage = lastMessage;
+            }
+          }
+
+          // Update last message if the current conversation's message is newer
+          const existingMsgDate = existing.lastMessageCandidate ? new Date(existing.lastMessageCandidate.created_at) : null;
+          const currentMsgDate = lastMessage ? new Date(lastMessage.created_at) : null;
+
+          if (currentMsgDate && (!existingMsgDate || currentMsgDate > existingMsgDate)) {
+             existing.lastMessageCandidate = lastMessage;
           }
         }
         
         // Add conversation ID to the creator's list
-        allConversationsByCreator.get(conv.creator_id).push(conv.id);
+        const convs = allConversationsByCreator.get(conv.creator_id);
+        if (convs) {
+          convs.push(conv.id);
+        }
       }
 
       // Step 3: Get all projects (opportunity_applications) for each creator
+      const creatorIds = Array.from(creatorConversations.keys());
+
+      const { data: allApplications } = await supabase
+        .from('opportunity_applications')
+        .select(`
+          id,
+          opportunity_id,
+          status,
+          applied_at,
+          creator_id,
+          opportunity:opportunities!inner (
+            id,
+            title,
+            company,
+            analyst_id
+          )
+        `)
+        .in('creator_id', creatorIds)
+        .eq('status', 'approved')
+        .eq('opportunity.analyst_id', analyst.id);
+
+      // Applications are already filtered by the query
+      const relevantApplications = allApplications || [];
+
+      // Group applications by creator_id
+      const applicationsByCreator = new Map();
+      relevantApplications.forEach((app) => {
+        if (!applicationsByCreator.has(app.creator_id)) {
+          applicationsByCreator.set(app.creator_id, []);
+        }
+        applicationsByCreator.get(app.creator_id).push(app);
+      });
+
       const unifiedConversations = await Promise.all(
         Array.from(creatorConversations.values()).map(async (conv) => {
-          // Get all approved projects between this analyst and creator
-          const { data: applications } = await supabase
-            .from('opportunity_applications')
-            .select('id, opportunity_id, status, applied_at')
-            .eq('creator_id', conv.creator_id)
-            .eq('status', 'approved');
+          const creatorApps = applicationsByCreator.get(conv.creator_id) || [];
 
-          // Get opportunity details for each application
-          const projectPromises = (applications || []).map(async (app) => {
-            const { data: opportunity } = await supabase
-              .from('opportunities')
-              .select('id, title, company, analyst_id')
-              .eq('id', app.opportunity_id)
-              .eq('analyst_id', analyst.id)
-              .maybeSingle();
+          const formattedProjects = creatorApps
+            .map((app) => {
+              const opp = Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity;
+              if (!opp) return null;
 
-            if (opportunity) {
               return {
                 id: app.id,
                 opportunity_id: app.opportunity_id,
-                opportunity_title: opportunity.title,
-                opportunity_company: opportunity.company,
+                opportunity_title: opp.title,
+                opportunity_company: opp.company,
                 status: 'active' as const,
                 started_at: app.applied_at
               };
-            }
-            return null;
-          });
-
-          const projectResults = await Promise.all(projectPromises);
-          const formattedProjects = projectResults.filter(Boolean);
-
-          // Get conversation IDs for this creator (already collected above)
-          const conversationIds = allConversationsByCreator.get(conv.creator_id) || [];
+            })
+            .filter((p): p is NonNullable<typeof p> => p !== null);
 
           // Get last message across all conversations with this creator
-          let lastMessage = null;
-          if (conversationIds.length > 0) {
-            const { data } = await supabase
-              .from('messages')
-              .select(`
-                content, 
-                sender_type, 
-                created_at,
-                message_type,
-                project_context
-              `)
-              .in('conversation_id', conversationIds)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            
-            lastMessage = data;
-          }
+          const lastMessage = conv.lastMessage;
 
           return {
-            ...conv,
+            ...cleanConv,
             projects: formattedProjects,
-            lastMessage: lastMessage ? {
-              content: lastMessage.content,
-              sender_type: lastMessage.sender_type,
-              created_at: lastMessage.created_at,
-              project_context: lastMessage.project_context
+            lastMessage: lastMessageData ? {
+              content: lastMessageData.content,
+              sender_type: lastMessageData.sender_type,
+              created_at: lastMessageData.created_at,
+              project_context: lastMessageData.project_context
             } : undefined,
             custom_title: conv.custom_title || null,
             tags: (conv.tags || []) as string[]
@@ -431,9 +497,8 @@ const AnalystMessages: React.FC<AnalystMessagesProps> = ({
 
   useAutoRefresh(fetchConversations, 20000, Boolean(analyst));
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(() => {
-    console.log('🔄 [ANALYST MESSAGES] Recarregando conversas após aba voltar a ficar visível');
     fetchConversations();
     if (selectedConversation?.id) {
       fetchMessages(selectedConversation.id);

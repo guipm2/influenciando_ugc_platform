@@ -458,6 +458,18 @@ BEGIN
 END;
 $$;
 
+-- Função: get_latest_messages
+CREATE OR REPLACE FUNCTION public.get_latest_messages(conversation_ids uuid[])
+RETURNS SETOF public.messages
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT DISTINCT ON (conversation_id) *
+  FROM public.messages
+  WHERE conversation_id = ANY(conversation_ids)
+  ORDER BY conversation_id, created_at DESC;
+$$;
+
 -- ============ PARTE 5: TRIGGERS ============
 
 -- Trigger: on_auth_user_created

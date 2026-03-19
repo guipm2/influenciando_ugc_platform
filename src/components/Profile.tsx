@@ -215,10 +215,9 @@ const Profile = () => {
     return () => clearTimeout(timeout);
   }, [statusMessage]);
 
-  // Recarregar dados do perfil quando a aba voltar a ficar visível
-  useTabVisibility(async () => {
-    console.log('🔄 [PROFILE] Recarregando perfil após aba voltar a ficar visível');
-    await fetchProfile();
+  // Recarregar dados do perfil silenciosamente quando a aba voltar a ficar visível
+  useTabVisibility(() => {
+    fetchProfile();
   });
 
   const handleFieldChange = (field: keyof ProfileFormData, value: string | number | null) => {

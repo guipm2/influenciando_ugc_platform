@@ -3,6 +3,7 @@ import { ArrowLeft, MapPin, Users, Globe, Mail, Phone, Calendar, MessageCircle, 
 import { supabase } from '../../lib/supabase';
 import { useRouter } from '../../hooks/useRouter';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { getInitial } from '../../utils/formatters';
 
 interface CreatorProfile {
   id: string;
@@ -179,7 +180,7 @@ const CreatorProfilePage: React.FC = () => {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                {creator.name?.charAt(0) || creator.email?.charAt(0).toUpperCase()}
+                {getInitial(creator.name, creator.email)}
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">{creator.name || 'Nome não informado'}</h1>

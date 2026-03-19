@@ -2,6 +2,10 @@
 
 Uma plataforma inovadora que conecta **criadores de conteúdo** com **oportunidades de marcas** de forma eficiente, moderna e tecnológica.
 
+**Link:** [Influenciando - Sua plataforma UGC](https://influenciando-ugc.netlify.app)
+
+**Key para conta de analista:** analista
+
 ## 📋 Sobre o Projeto
 
 **Influenciando** é uma aplicação web full-stack desenvolvida para revolucionar a gestão de campanhas de UGC (User Generated Content). Com uma identidade visual moderna em preto e verde neon, a plataforma oferece uma experiência única onde analistas podem criar oportunidades, gerenciar projetos e definir prazos, enquanto criadores podem se candidatar a projetos e acompanhar suas entregas em tempo real.
@@ -211,8 +215,8 @@ Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para ma
 ## 📞 Suporte
 
 Para dúvidas ou suporte:
-- 📧 Email: [your-email@example.com]
-- 🐛 Issues: [GitHub Issues](https://github.com/your-username/ugc-platform/issues)
+- 📧 Email: [guipm2@gmail.com]
+- 🐛 Issues: [GitHub Issues](https://github.com/guipm2/influenciando_ugc_platform/issues)
 
 ## 🎨 Personalização (White Label)
 

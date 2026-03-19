@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, Users, Check, XIcon, ExternalLink, MapPin, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { getInitial } from '../../utils/formatters';
 import ModalPortal from '../common/ModalPortal';
 
 interface Application {
@@ -192,7 +193,7 @@ const ApplicationsModal: React.FC<ApplicationsModalProps> = ({
           const { error: opportunityError } = await supabase
             .from('opportunities')
             .update({
-              status: 'inativo',
+              status: 'encerrado',
               updated_at: now
             })
             .eq('id', opportunityId);
@@ -200,7 +201,7 @@ const ApplicationsModal: React.FC<ApplicationsModalProps> = ({
           if (opportunityError) {
             console.error('Erro ao encerrar oportunidade após aprovação:', opportunityError);
           } else if (onOpportunityStatusChange) {
-            onOpportunityStatusChange(opportunityId, 'inativo');
+            onOpportunityStatusChange(opportunityId, 'encerrado');
           }
         }
 
@@ -324,7 +325,7 @@ const ApplicationsModal: React.FC<ApplicationsModalProps> = ({
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center space-x-4">
                       <div className="w-12 h-12 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-white text-lg font-bold">
-                        {application.creator.name?.charAt(0) || application.creator.email?.charAt(0).toUpperCase()}
+                        {getInitial(application.creator.name, application.creator.email)}
                       </div>
                       <div>
                         <h3 className="font-semibold text-gray-900">

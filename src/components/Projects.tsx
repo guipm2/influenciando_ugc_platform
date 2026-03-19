@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Folder, Calendar, Upload, MessageCircle, CheckCircle, Clock, AlertCircle, FileText, X, Grid3X3, List, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Folder, Calendar, Upload, MessageCircle, CheckCircle, Clock, AlertCircle, FileText, X, Grid3X3, List, Eye, EyeOff, Star } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useTabVisibility } from '../hooks/useTabVisibility';
@@ -7,6 +7,7 @@ import ProjectInfo from './ProjectInfo';
 import { router } from '../utils/router';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import ModalPortal from './common/ModalPortal';
+import RatingModal from './common/RatingModal';
 
 // Helper function to navigate to project
 const navigateToProject = (projectId: string) => {
@@ -21,6 +22,7 @@ interface Project {
   description: string;
   deadline: string;
   status: 'em_andamento' | 'entregue' | 'aprovado' | 'atrasado';
+  db_status?: string;
   content_type: string;
   budget: string;
   conversation_id: string;
@@ -29,6 +31,10 @@ interface Project {
   opportunity?: {
     company_link?: string;
     briefing?: string;
+  };
+  rating?: {
+    rating: number;
+    feedback?: string;
   };
 }
 
@@ -176,6 +182,8 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
   const [showUploadModal, setShowUploadModal] = useState<string | null>(null);
   const [uploadFiles, setUploadFiles] = useState<FileList | null>(null);
   const [uploadingDeliverableId, setUploadingDeliverableId] = useState<string | null>(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     if (typeof window === 'undefined') {
       return 'grid';
@@ -268,7 +276,8 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
             company_link,
             briefing,
             created_at
-          )
+          ),
+          project_ratings(rating, feedback)
         `)
         .eq('creator_id', user.id)
         .eq('status', 'approved');
@@ -280,39 +289,67 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
         return;
       }
 
-      const projectsData = [];
-      
-      for (const app of applications || []) {
-        const opportunity = Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity;
-        
-        if (!opportunity) continue;
+      const validApps = (applications || []).map(app => ({
+        ...app,
+        opportunity: Array.isArray(app.opportunity) ? app.opportunity[0] : app.opportunity,
+      })).filter(app => app.opportunity);
 
-        // Buscar conversa relacionada
-        const { data: conversation, error: conversationError } = await supabase
+      // Batch: buscar todas as conversas de uma vez
+      const appOpportunityIds = validApps.map(a => a.opportunity_id);
+      const appIds = validApps.map(a => a.id);
+
+      const [conversationsResult, deliverablesResult] = await Promise.all([
+        supabase
           .from('conversations')
-          .select('id')
-          .eq('opportunity_id', app.opportunity_id)
+          .select('id, opportunity_id, analyst_id')
           .eq('creator_id', user.id)
-          .eq('analyst_id', opportunity.created_by)
-          .maybeSingle();
-
-        if (conversationError) {
-          console.error('❌ [PROJECTS] Erro ao buscar conversa:', conversationError);
-        }
-
-        // Buscar deliverables cadastrados no banco para esta candidatura
-        const { data: dbDeliverables, error: deliverablesError } = await supabase
+          .in('opportunity_id', appOpportunityIds),
+        supabase
           .from('project_deliverables')
           .select('*')
-          .eq('application_id', app.id)
-          .order('priority', { ascending: true });
+          .in('application_id', appIds)
+          .order('priority', { ascending: true }),
+      ]);
 
-        if (deliverablesError) {
-          console.error('❌ [PROJECTS] Erro ao buscar deliverables:', deliverablesError);
-        }
+      if (conversationsResult.error) {
+        console.error('❌ [PROJECTS] Erro ao buscar conversas:', conversationsResult.error);
+      }
+      if (deliverablesResult.error) {
+        console.error('❌ [PROJECTS] Erro ao buscar deliverables:', deliverablesResult.error);
+      }
 
-        // Mapear deliverables vindos do banco para a interface local
-        const mappedDbDeliverables: Deliverable[] = (dbDeliverables ?? []).map(mapDeliverableFromDb);
+      // Criar lookup maps
+      const conversationsMap = new Map<string, string>();
+      for (const conv of conversationsResult.data || []) {
+        const key = `${conv.opportunity_id}:${conv.analyst_id}`;
+        conversationsMap.set(key, conv.id);
+      }
+
+      const deliverablesMap = new Map<string, typeof deliverablesResult.data>();
+      for (const del of deliverablesResult.data || []) {
+        const existing = deliverablesMap.get(del.application_id) || [];
+        existing.push(del);
+        deliverablesMap.set(del.application_id, existing);
+      }
+
+      const projectsData = [];
+
+      for (const app of validApps) {
+        const opportunity = app.opportunity;
+
+        // Lookup na Map em vez de query individual
+        const conversationKey = `${app.opportunity_id}:${opportunity.created_by}`;
+        const conversationId = conversationsMap.get(conversationKey) || '';
+
+        // Lookup deliverables na Map
+        const dbDeliverables = deliverablesMap.get(app.id) || [];
+        const mappedDbDeliverables: Deliverable[] = dbDeliverables.map(mapDeliverableFromDb);
+
+        // Extract rating if exists
+        const appWithRatings = app as unknown as { project_ratings: { rating: number; feedback: string }[] | null };
+        const rating = Array.isArray(appWithRatings.project_ratings) && appWithRatings.project_ratings.length > 0
+          ? appWithRatings.project_ratings[0]
+          : null;
 
         // Só gerar deliverables padrão caso ainda não exista nenhum cadastrado no banco
         const fallbackDeliverables = mappedDbDeliverables.length === 0
@@ -344,15 +381,20 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
           description: opportunity.description,
           deadline: opportunity.deadline,
           status: getProjectStatus(opportunity.deadline, allDeliverables),
+          db_status: app.status,
           content_type: opportunity.content_type,
           budget: `R$ ${opportunity.budget?.toFixed(2) || '0.00'}`,
-          conversation_id: conversation?.id || '',
+          conversation_id: conversationId,
           deliverables: allDeliverables,
           created_at: new Date().toISOString(),
           opportunity: {
             company_link: opportunity.company_link,
             briefing: opportunity.briefing
-          }
+          },
+          rating: rating ? {
+            rating: rating.rating,
+            feedback: rating.feedback
+          } : undefined
         });
       }
 
@@ -396,25 +438,10 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
 
   useAutoRefresh(() => fetchProjects({ silent: true }), 25000, Boolean(user));
 
-  // Recarregar quando a aba voltar a ficar visível
+  // Recarregar silenciosamente quando a aba voltar a ficar visível
   useTabVisibility(async () => {
     if (!user) return;
-    
-    console.log('🔄 [PROJECTS] Recarregando projetos após aba voltar a ficar visível');
-    
-    // Validar sessão antes de recarregar
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('⚠️ [PROJECTS] Sessão inválida ao tentar recarregar');
-        return;
-      }
-    } catch (err) {
-      console.error('❌ [PROJECTS] Erro ao validar sessão:', err);
-      return;
-    }
-    
-    await fetchProjects({ force: true });
+    await fetchProjects({ silent: true, force: true });
   });
 
   const getProjectStatus = (deadline: string, deliverables?: Deliverable[]): 'em_andamento' | 'entregue' | 'aprovado' | 'atrasado' => {
@@ -620,6 +647,39 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
     return true;
   });
 
+  const handleRateProject = async (rating: number, feedback: string) => {
+    if (!selectedProject || !user) return;
+
+    setIsSubmittingRating(true);
+    try {
+      const { error } = await supabase
+        .from('project_ratings')
+        .insert({
+          application_id: selectedProject.id,
+          rating,
+          feedback
+        });
+
+      if (error) throw error;
+
+      // Update local state
+      const updatedProject = {
+        ...selectedProject,
+        rating: { rating, feedback }
+      };
+
+      setSelectedProject(updatedProject);
+      setProjects(prev => prev.map(p => p.id === selectedProject.id ? updatedProject : p));
+
+      setShowRatingModal(false);
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      alert('Erro ao enviar avaliação. Tente novamente.');
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-8">
@@ -679,6 +739,25 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
                 <MessageCircle className="h-4 w-4" />
                 Conversar com analista
               </button>
+
+              {(selectedProject.status === 'aprovado' || selectedProject.db_status === 'approved') && (
+                selectedProject.rating ? (
+                  <div className="flex items-center gap-1 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                    <span className="text-sm font-medium text-yellow-200">
+                      {selectedProject.rating.rating}/5
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowRatingModal(true)}
+                    className="btn-ghost-glass text-sm border-yellow-500/30 text-yellow-200 hover:bg-yellow-500/10"
+                  >
+                    <Star className="h-4 w-4" />
+                    Avaliar Projeto
+                  </button>
+                )
+              )}
             </div>
           </div>
 
@@ -910,6 +989,13 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenConversation, selectedProject
             </div>
           </ModalPortal>
         )}
+
+        <RatingModal
+          isOpen={showRatingModal}
+          onClose={() => setShowRatingModal(false)}
+          onSubmit={handleRateProject}
+          isSubmitting={isSubmittingRating}
+        />
       </div>
     );
   }

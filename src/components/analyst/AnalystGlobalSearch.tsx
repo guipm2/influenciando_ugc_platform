@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Target, Users, Building, MessageCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { useDebounce } from '../../hooks/useDebounce';
 
 interface SearchResult {
   id: string;
@@ -20,6 +21,7 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
   placeholder = "Pesquisar criadores, oportunidades..." 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -42,107 +44,121 @@ const AnalystGlobalSearch: React.FC<AnalystGlobalSearchProps> = ({
 
   const performSearch = useCallback(async () => {
     setLoading(true);
-    const searchResults: SearchResult[] = [];
 
     try {
-      // Search creators (priority for analysts)
-      const { data: creators } = await supabase
-        .from('profiles')
-        .select('*')
-        .or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,bio.ilike.%${searchTerm}%,niche.ilike.%${searchTerm}%`)
-        .limit(8);
+      const fetchCreators = async () => {
+        const { data: creators } = await supabase
+          .from('profiles')
+          .select('*')
+          .or(`name.ilike.%${debouncedSearchTerm}%,email.ilike.%${debouncedSearchTerm}%,bio.ilike.%${debouncedSearchTerm}%,niche.ilike.%${debouncedSearchTerm}%`)
+          .limit(8);
 
-      if (creators) {
-        creators.forEach(creator => {
-          searchResults.push({
-            id: creator.id,
-            type: 'creator',
-            title: creator.name || creator.email,
-            subtitle: `${creator.niche ? creator.niche.charAt(0).toUpperCase() + creator.niche.slice(1) : 'Criador'} • ${creator.followers || 'Seguidores não informado'}`,
-            avatar: creator.avatar_url,
-            data: creator
+        const results: SearchResult[] = [];
+        if (creators) {
+          creators.forEach(creator => {
+            results.push({
+              id: creator.id,
+              type: 'creator',
+              title: creator.name || creator.email,
+              subtitle: `${creator.niche ? creator.niche.charAt(0).toUpperCase() + creator.niche.slice(1) : 'Criador'} • ${creator.followers || 'Seguidores não informado'}`,
+              avatar: creator.avatar_url,
+              data: creator
+            });
           });
-        });
-      }
+        }
+        return results;
+      };
 
-      // Search own opportunities
-      if (analyst) {
+      const fetchOpportunities = async () => {
+        const results: SearchResult[] = [];
+        if (!analyst) return results;
+
         const { data: opportunities } = await supabase
           .from('opportunities')
           .select('*')
-          .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
+          .or(`title.ilike.%${debouncedSearchTerm}%,description.ilike.%${debouncedSearchTerm}%`)
           .eq('analyst_id', analyst.id)
           .limit(5);
 
         if (opportunities) {
-          // Calculate dynamic candidates count for each opportunity
-          const opportunitiesWithCount = await Promise.all(
-            opportunities.map(async (opp) => {
-              const { count, error: countError } = await supabase
-                .from('opportunity_applications')
-                .select('*', { count: 'exact', head: true })
-                .eq('opportunity_id', opp.id);
+          const opportunityIds = opportunities.map(opp => opp.id);
+          const applicationCounts: Record<string, number> = {};
 
-              if (countError) {
-                console.error('Erro ao buscar contagem de candidatos:', countError);
-              }
+          if (opportunityIds.length > 0) {
+            const { data: applications, error: applicationsError } = await supabase
+              .from('opportunity_applications')
+              .select('opportunity_id')
+              .in('opportunity_id', opportunityIds);
 
-              return {
-                ...opp,
-                candidates_count: count || 0
-              };
-            })
-          );
+            if (applicationsError) {
+              console.error('Erro ao buscar contagem de candidatos:', applicationsError);
+            } else if (applications) {
+              applications.forEach((app: { opportunity_id: string }) => {
+                applicationCounts[app.opportunity_id] = (applicationCounts[app.opportunity_id] || 0) + 1;
+              });
+            }
+          }
 
-          opportunitiesWithCount.forEach(opp => {
-            searchResults.push({
+          opportunities.forEach(opp => {
+            const count = applicationCounts[opp.id] || 0;
+            results.push({
               id: opp.id,
               type: 'opportunity',
               title: opp.title,
-              subtitle: `${opp.candidates_count || 0} candidatos • R$ ${opp.budget_min} - R$ ${opp.budget_max}`,
-              data: opp
+              subtitle: `${count} candidatos • R$ ${opp.budget_min} - R$ ${opp.budget_max}`,
+              data: { ...opp, candidates_count: count }
             });
           });
         }
-      }
+        return results;
+      };
 
-      // Search companies (from all opportunities)
-      const { data: companies } = await supabase
-        .from('opportunities')
-        .select('company')
-        .ilike('company', `%${searchTerm}%`)
-        .eq('status', 'ativo');
+      const fetchCompanies = async () => {
+        const results: SearchResult[] = [];
+        const { data: companies } = await supabase
+          .from('opportunities')
+          .select('company')
+          .ilike('company', `%${debouncedSearchTerm}%`)
+          .eq('status', 'ativo');
 
-      if (companies) {
-        const uniqueCompanies = [...new Set(companies.map(c => c.company))];
-        uniqueCompanies.slice(0, 3).forEach(company => {
-          searchResults.push({
-            id: company,
-            type: 'company',
-            title: company,
-            subtitle: 'Empresa',
-            data: { company }
+        if (companies) {
+          const uniqueCompanies = [...new Set(companies.map(c => c.company))];
+          uniqueCompanies.slice(0, 3).forEach(company => {
+            results.push({
+              id: company,
+              type: 'company',
+              title: company,
+              subtitle: 'Empresa',
+              data: { company }
+            });
           });
-        });
-      }
+        }
+        return results;
+      };
 
-      setResults(searchResults);
+      const [creatorsResults, opportunitiesResults, companiesResults] = await Promise.all([
+        fetchCreators(),
+        fetchOpportunities(),
+        fetchCompanies()
+      ]);
+
+      setResults([...creatorsResults, ...opportunitiesResults, ...companiesResults]);
       setIsOpen(true);
     } catch (error) {
       console.error('Erro na busca:', error);
     } finally {
       setLoading(false);
     }
-  }, [analyst, searchTerm]);
+  }, [analyst, debouncedSearchTerm]);
 
   useEffect(() => {
-    if (searchTerm.length >= 2) {
+    if (debouncedSearchTerm.length >= 2) {
       performSearch();
     } else {
       setResults([]);
       setIsOpen(false);
     }
-  }, [searchTerm, performSearch]);
+  }, [debouncedSearchTerm, performSearch]);
 
   const getIcon = (type: string) => {
     switch (type) {

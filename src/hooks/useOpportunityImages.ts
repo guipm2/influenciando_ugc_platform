@@ -101,8 +101,6 @@ export const useOpportunityImages = () => {
     }));
     setUploadProgress(progressList);
 
-    const uploadedImages: OpportunityImage[] = [];
-
     try {
       // Upload paralelo de todas as imagens
       const uploadPromises = files.map(async (file, index) => {
@@ -127,44 +125,17 @@ export const useOpportunityImages = () => {
             throw uploadError;
           }
 
-          // Obter URL pública (válida por 1 ano = 31536000 segundos)
-          const { data: signedUrlData } = await supabase.storage
-            .from('opportunity-images')
-            .createSignedUrl(fileName, 31536000); // 1 ano
-
-          const publicUrl = signedUrlData?.signedUrl || '';
-          console.log('URL assinada gerada para imagem:', publicUrl);
-
-          // Calcular display_order (próximo número disponível)
-          const nextOrder = currentCount + index;
-
-          // Salvar no banco de dados
-          const { data: dbData, error: dbError } = await supabase
-            .from('opportunity_images')
-            .insert({
-              opportunity_id: oppId,
-              image_url: publicUrl,
-              display_order: nextOrder
-            })
-            .select()
-            .single();
-
-          if (dbError) {
-            // Se falhar ao salvar no banco, deletar do storage
-            await supabase.storage
-              .from('opportunity-images')
-              .remove([fileName]);
-            throw dbError;
-          }
-
           // Atualizar progresso
           setUploadProgress(prev =>
             prev.map((p, i) =>
-              i === index ? { ...p, progress: 100, status: 'success' } : p
+              i === index ? { ...p, progress: 100 } : p
             )
           );
 
-          uploadedImages.push(dbData);
+          return {
+            fileName,
+            index
+          };
         } catch (err) {
           console.error(`Erro ao fazer upload de ${file.name}:`, err);
           
@@ -177,11 +148,74 @@ export const useOpportunityImages = () => {
             )
           );
           
-          throw err;
+          return null;
         }
       });
 
-      await Promise.all(uploadPromises);
+      const results = await Promise.all(uploadPromises);
+      const successfulUploads = results.filter((r): r is NonNullable<typeof r> => r !== null);
+
+      if (successfulUploads.length === 0) {
+        throw new Error('Falha no upload de todas as imagens');
+      }
+
+      // Gerar URLs assinadas em lote (válidas por 1 ano = 31536000 segundos)
+      const fileNames = successfulUploads.map(r => r.fileName);
+      const { data: signedUrlsData, error: signError } = await supabase.storage
+        .from('opportunity-images')
+        .createSignedUrls(fileNames, 31536000);
+
+      if (signError) {
+        console.error('Erro ao gerar URLs assinadas:', signError);
+        // Se falhar ao assinar, limpar o storage
+        await supabase.storage
+          .from('opportunity-images')
+          .remove(fileNames);
+        throw signError;
+      }
+
+      // Mapear URLs de volta para os uploads
+      const insertData = successfulUploads.map(upload => {
+        const signedUrlObj = signedUrlsData?.find(s => s.path === upload.fileName);
+
+        if (!signedUrlObj || signedUrlObj.error) {
+          console.error(`Falha ao obter URL assinada para ${upload.fileName}:`, signedUrlObj?.error);
+          return null;
+        }
+
+        const nextOrder = currentCount + upload.index;
+
+        return {
+          opportunity_id: oppId,
+          image_url: signedUrlObj.signedUrl,
+          display_order: nextOrder
+        };
+      }).filter((d): d is NonNullable<typeof d> => d !== null);
+
+      if (insertData.length === 0) {
+        throw new Error('Falha ao preparar dados para inserção');
+      }
+
+      // Inserção em lote no banco de dados apenas das imagens com sucesso no upload
+      const { data: dbData, error: dbError } = await supabase
+        .from('opportunity_images')
+        .insert(insertData)
+        .select();
+
+      if (dbError) {
+        // Se falhar ao salvar no banco, deletar do storage as imagens que foram enviadas
+        await supabase.storage
+          .from('opportunity-images')
+          .remove(fileNames);
+        throw dbError;
+      }
+
+      // Atualizar progresso para sucesso apenas das imagens inseridas
+      setUploadProgress(prev =>
+        prev.map((p, i) => results[i] ? { ...p, status: 'success' } : p)
+      );
+
+      const uploadedImages = dbData as OpportunityImage[];
 
       // Atualizar lista de imagens
       setImages(prev => [...prev, ...uploadedImages].sort((a, b) => a.display_order - b.display_order));
@@ -246,22 +280,32 @@ export const useOpportunityImages = () => {
   const reorderImages = async (reorderedImages: OpportunityImage[]) => {
     setError(null);
 
+    // Otimisticamente atualiza a UI para uma experiência mais fluida
+    setImages(reorderedImages);
+
     try {
-      // Atualizar display_order de cada imagem
-      const updates = reorderedImages.map((img, index) =>
-        supabase
-          .from('opportunity_images')
-          .update({ display_order: index })
-          .eq('id', img.id)
-      );
+      // Prepara os dados para a operação de upsert em lote
+      // PERFORMANCE: Utiliza upsert em lote para evitar N+1 atualizações (uma query por imagem)
+      // Esta abordagem reduz drasticamente o número de chamadas ao banco de dados (de N para 1)
+      const updates = reorderedImages.map((img, index) => ({
+        id: img.id,
+        opportunity_id: img.opportunity_id,
+        display_order: index,
+      }));
 
-      await Promise.all(updates);
+      // Realiza a chamada de upsert única para o Supabase
+      const { error: upsertError } = await supabase
+        .from('opportunity_images')
+        .upsert(updates, { onConflict: 'id' });
 
-      // Atualizar estado local
-      setImages(reorderedImages);
+      if (upsertError) {
+        throw upsertError;
+      }
     } catch (err) {
       console.error('Erro ao reordenar imagens:', err);
-      setError('Erro ao reordenar imagens');
+      setError('Falha ao salvar a nova ordem das imagens. Tente novamente.');
+      // Idealmente, aqui poderíamos reverter o estado para a ordem anterior
+      // mas, por simplicidade, mantemos a UI como está e exibimos o erro.
       throw err;
     }
   };

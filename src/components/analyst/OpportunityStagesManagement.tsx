@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Package, Truck, FileText, Video, Edit, CheckCircle, Clock, Plus, Save, X, Eye, Grid3X3, List, MoreVertical, ChevronDown, ChevronRight, Users, UserCheck, User, MapPin, ExternalLink, Globe, Calendar, Mail, Phone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAnalystAuth } from '../../contexts/AnalystAuthContext';
+import { getInitial } from '../../utils/formatters';
 
 interface OpportunityStage {
   id: string;
@@ -218,73 +219,145 @@ const OpportunityStagesManagement: React.FC = () => {
         return;
       }
 
-      // Para cada oportunidade, buscar criadores aprovados e suas etapas
-      const opportunitiesWithCreators = await Promise.all(
-        (opportunities || []).map(async (opp) => {
-          // Calculate dynamic candidates count for this opportunity
-          const { count: candidatesCount, error: candidatesError } = await supabase
-            .from('opportunity_applications')
-            .select('*', { count: 'exact', head: true })
-            .eq('opportunity_id', opp.id);
+      if (!opportunities || opportunities.length === 0) {
+        setOpportunitiesWithCreators([]);
+        return;
+      }
 
-          if (candidatesError) {
-            console.error('Erro ao buscar contagem de candidatos:', candidatesError);
-          }
+      const opportunityIds = opportunities.map(opp => opp.id);
 
-          // Buscar candidaturas aprovadas
-          const { data: applications } = await supabase
-            .from('opportunity_applications')
-            .select(`
-              creator_id,
-              creator:profiles (
-                name,
-                email,
-                bio,
-                location,
-                niche,
-                followers,
-                website,
-                phone,
-                avatar_url,
-                created_at
-              )
-            `)
-            .eq('opportunity_id', opp.id)
-            .eq('status', 'approved');
+      // OTIMIZAÇÃO DE PERFORMANCE (N+1):
+      // Em vez de fazer queries individuais para cada oportunidade (o que geraria N+1 queries),
+      // buscamos todos os dados relacionados de uma vez usando .in('opportunity_id', ids).
+      // Isso reduz drasticamente o número de chamadas de rede e melhora a performance.
 
-          // Buscar etapas dos criadores aprovados
-          const { data: stages } = await supabase
-            .from('opportunity_stages')
-            .select(`
-              *,
-              creator:profiles (
-                name,
-                email,
-                bio,
-                location,
-                niche,
-                followers,
-                website,
-                phone,
-                avatar_url,
-                created_at
-              )
-            `)
-            .eq('opportunity_id', opp.id);
+      // Fetch all related data in parallel
+      const [
+        { data: allApplications, error: applicationsError },
+        { data: approvedApplications, error: approvedError },
+        { data: stages, error: stagesError }
+      ] = await Promise.all([
+        // Get all applications to count candidates
+        supabase
+          .from('opportunity_applications')
+          .select('opportunity_id')
+          .in('opportunity_id', opportunityIds),
 
-          const creators = (stages || []).map(stage => ({
-            ...stage,
-            opportunity: opp
-          }));
+        // Get approved applications with details
+        supabase
+          .from('opportunity_applications')
+          .select(`
+            opportunity_id,
+            creator_id,
+            creator:profiles (
+              name,
+              email,
+              bio,
+              location,
+              niche,
+              followers,
+              website,
+              phone,
+              avatar_url,
+              created_at
+            )
+          `)
+          .in('opportunity_id', opportunityIds)
+          .eq('status', 'approved'),
 
-          return {
-            ...opp,
-            candidates_count: candidatesCount || 0,
-            approved_count: applications?.length || 0,
-            creators
-          };
-        })
-      );
+        // Get stages
+        supabase
+          .from('opportunity_stages')
+          .select(`
+            *,
+            creator:profiles (
+              name,
+              email,
+              bio,
+              location,
+              niche,
+              followers,
+              website,
+              phone,
+              avatar_url,
+              created_at
+            )
+          `)
+          .in('opportunity_id', opportunityIds)
+      ]);
+
+      if (applicationsError) console.error('Erro ao buscar contagem de candidatos (bulk fetch):', applicationsError);
+      if (approvedError) console.error('Erro ao buscar candidaturas aprovadas (bulk fetch):', approvedError);
+      if (stagesError) console.error('Erro ao buscar etapas (bulk fetch):', stagesError);
+
+      // Helper types for bulk data processing
+      type CreatorProfile = {
+        name: string;
+        email: string;
+        bio: string;
+        location: string;
+        niche: string;
+        followers: string;
+        website: string;
+        phone: string;
+        avatar_url: string;
+        created_at: string;
+      };
+
+      type DbStage = {
+        id: string;
+        opportunity_id: string;
+        stage: string;
+        tracking_code: string | null;
+        notes: string | null;
+        completed_at: string | null;
+        created_at: string;
+        updated_at: string;
+        creator_id: string | null;
+        creator: CreatorProfile;
+      };
+
+      type DbApplication = {
+        opportunity_id: string;
+        creator_id: string;
+        creator: CreatorProfile;
+      };
+
+      // Process data for quick lookup
+      const candidateCounts = (allApplications || []).reduce((acc, app) => {
+        acc[app.opportunity_id] = (acc[app.opportunity_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const approvedMap = (approvedApplications || []).reduce((acc, app) => {
+        const typedApp = app as unknown as DbApplication;
+        if (!acc[typedApp.opportunity_id]) acc[typedApp.opportunity_id] = [];
+        acc[typedApp.opportunity_id].push(typedApp);
+        return acc;
+      }, {} as Record<string, DbApplication[]>);
+
+      const stagesMap = (stages || []).reduce((acc, stage) => {
+        const typedStage = stage as unknown as DbStage;
+        if (!acc[typedStage.opportunity_id]) acc[typedStage.opportunity_id] = [];
+        acc[typedStage.opportunity_id].push(typedStage);
+        return acc;
+      }, {} as Record<string, DbStage[]>);
+
+      // Map back to opportunities
+      const opportunitiesWithCreators = opportunities.map((opp) => {
+        const oppStages = stagesMap[opp.id] || [];
+        const creators = oppStages.map((stage) => ({
+          ...stage,
+          opportunity: opp
+        }));
+
+        return {
+          ...opp,
+          candidates_count: candidateCounts[opp.id] || 0,
+          approved_count: (approvedMap[opp.id] || []).length,
+          creators
+        };
+      });
 
       setOpportunitiesWithCreators(opportunitiesWithCreators);
     } catch (err) {
@@ -719,7 +792,7 @@ const OpportunityStagesManagement: React.FC = () => {
                                   className="w-10 h-10 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-sm font-bold hover:scale-105 transition-transform"
                                   title="Ver perfil completo"
                                 >
-                                  {creator.creator?.name?.charAt(0) || creator.creator?.email?.charAt(0).toUpperCase()}
+                                  {getInitial(creator.creator?.name, creator.creator?.email)}
                                 </button>
                                 <div>
                                   <button
@@ -1269,7 +1342,7 @@ const OpportunityStagesManagement: React.FC = () => {
               {/* Profile Header */}
               <div className="text-center">
                 <div className="w-24 h-24 bg-gradient-to-br from-[#00FF41] to-[#00CC34] rounded-full flex items-center justify-center text-black text-2xl font-bold mx-auto mb-4">
-                  {selectedCreatorProfile.name?.charAt(0) || selectedCreatorProfile.email?.charAt(0).toUpperCase()}
+                  {getInitial(selectedCreatorProfile.name, selectedCreatorProfile.email)}
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900">{selectedCreatorProfile.name || 'Nome não informado'}</h3>
                 <p className="text-gray-600">{selectedCreatorProfile.email}</p>

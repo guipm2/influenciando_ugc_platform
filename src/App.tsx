@@ -15,6 +15,7 @@ const AnalystLoginPage = lazy(() => import('./components/auth/AnalystLoginPage')
 const EmailConfirmationPage = lazy(() => import('./components/auth/EmailConfirmationPage'));
 const AnalystDashboard = lazy(() => import('./components/analyst/AnalystDashboard'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
+const ErrorBoundary = lazy(() => import('./components/common/ErrorBoundary'));
 
 const RouteFallback = () => (
   <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
@@ -494,7 +495,9 @@ function App() {
     return (
       <AnalystAuthProvider>
         <Suspense fallback={<RouteFallback />}>
-          <AnalystApp />
+          <ErrorBoundary>
+            <AnalystApp />
+          </ErrorBoundary>
         </Suspense>
       </AnalystAuthProvider>
     );
@@ -505,7 +508,9 @@ function App() {
     return (
       <AuthProvider>
         <Suspense fallback={<RouteFallback />}>
-          <CreatorApp />
+          <ErrorBoundary>
+            <CreatorApp />
+          </ErrorBoundary>
         </Suspense>
       </AuthProvider>
     );
