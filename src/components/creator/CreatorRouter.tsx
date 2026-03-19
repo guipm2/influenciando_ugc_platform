@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useRouter } from '../../hooks/useRouter';
-import Dashboard from '../Dashboard';
-import Opportunities from '../Opportunities';
-import OpportunityDetailsPage from '../OpportunityDetailsPage';
-import Projects from '../Projects';
-import Messages from '../Messages';
-import Training from '../Training';
-import Profile from '../Profile';
-import Help from '../Help';
-import AccountSettings from '../AccountSettings';
+
+const Dashboard = lazy(() => import('../Dashboard'));
+const Opportunities = lazy(() => import('../Opportunities'));
+const OpportunityDetailsPage = lazy(() => import('../OpportunityDetailsPage'));
+const Projects = lazy(() => import('../Projects'));
+const Messages = lazy(() => import('../Messages'));
+const Training = lazy(() => import('../Training'));
+const Profile = lazy(() => import('../Profile'));
+const Help = lazy(() => import('../Help'));
+const AccountSettings = lazy(() => import('../AccountSettings'));
 
 interface CreatorRouterProps {
   onOpenConversation: (projectId: string) => void; // Changed for clarity
@@ -23,46 +24,60 @@ const CreatorRouter: React.FC<CreatorRouterProps> = ({
 }) => {
   const { currentPath } = useRouter();
 
+  const renderWithSuspense = (element: React.ReactNode) => (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-transparent" />
+        </div>
+      }
+    >
+      {element}
+    </Suspense>
+  );
+
   // Extract the route from the path (remove /creators prefix)
   const route = currentPath.replace('/creators', '') || '/opportunities';
 
   // Handle opportunity details route with ID parameter
   if (route.startsWith('/opportunities/') && route !== '/opportunities') {
     const opportunityId = route.split('/')[2];
-    return <OpportunityDetailsPage opportunityId={opportunityId} />;
+    return renderWithSuspense(<OpportunityDetailsPage opportunityId={opportunityId} />);
   }
 
   // Handle project details route with ID parameter
   if (route.startsWith('/projects/') && route !== '/projects') {
     const projectId = route.split('/')[2];
-    return <Projects selectedProjectId={projectId} onOpenConversation={onOpenConversation} />;
+    return renderWithSuspense(<Projects selectedProjectId={projectId} onOpenConversation={onOpenConversation} />);
   }
 
   // Handle messages with project ID parameter
   if (route.startsWith('/messages/') && route !== '/messages') {
     const projectId = route.split('/')[2];
-    return <Messages selectedProjectId={projectId} onBackToList={onBackToList} />;
+    return renderWithSuspense(<Messages selectedProjectId={projectId} onBackToList={onBackToList} />);
   }
 
   switch (route) {
     case '/dashboard':
-      return <Dashboard key={route} />;
+      return renderWithSuspense(<Dashboard key={route} />);
     case '/opportunities':
-      return <Opportunities key={route} />;
+      return renderWithSuspense(<Opportunities key={route} />);
     case '/projects':
-      return <Projects key={route} onOpenConversation={onOpenConversation} />;
+      return renderWithSuspense(<Projects key={route} onOpenConversation={onOpenConversation} />);
     case '/messages':
-      return <Messages key={route} selectedProjectId={selectedConversationId} onBackToList={onBackToList} />;
+      return renderWithSuspense(
+        <Messages key={route} selectedProjectId={selectedConversationId} onBackToList={onBackToList} />
+      );
     case '/training':
-      return <Training key={route} />;
+      return renderWithSuspense(<Training key={route} />);
     case '/profile':
-      return <Profile key={route} />;
+      return renderWithSuspense(<Profile key={route} />);
     case '/help':
-      return <Help key={route} />;
+      return renderWithSuspense(<Help key={route} />);
     case '/settings':
-      return <AccountSettings key={route} />;
+      return renderWithSuspense(<AccountSettings key={route} />);
     default:
-      return <Opportunities key={route} />;
+      return renderWithSuspense(<Opportunities key={route} />);
   }
 };
 

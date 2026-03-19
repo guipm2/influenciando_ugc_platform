@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useRouter } from '../../hooks/useRouter';
-import AnalystOverview from './AnalystOverview';
-import OpportunityManagement from './OpportunityManagement';
-import OpportunityStagesManagementWrapper from './OpportunityStagesManagementWrapper';
-import ProjectManagement from './ProjectManagement';
-import CreatorsList from './CreatorsList';
-import AnalystMessages from './AnalystMessages';
-import AnalystAccountSettings from './AnalystAccountSettings';
-import EnhancedDeliverableManagement from './EnhancedDeliverableManagement';
-import EnhancedProjectDashboard from './EnhancedProjectDashboard';
-import CreatorProfilePage from './CreatorProfilePage';
+
+const AnalystOverview = lazy(() => import('./AnalystOverview'));
+const OpportunityManagement = lazy(() => import('./OpportunityManagement'));
+const OpportunityStagesManagementWrapper = lazy(() => import('./OpportunityStagesManagementWrapper'));
+const ProjectManagement = lazy(() => import('./ProjectManagement'));
+const CreatorsList = lazy(() => import('./CreatorsList'));
+const AnalystMessages = lazy(() => import('./AnalystMessages'));
+const AnalystAccountSettings = lazy(() => import('./AnalystAccountSettings'));
+const EnhancedDeliverableManagement = lazy(() => import('./EnhancedDeliverableManagement'));
+const EnhancedProjectDashboard = lazy(() => import('./EnhancedProjectDashboard'));
+const CreatorProfilePage = lazy(() => import('./CreatorProfilePage'));
 
 interface AnalystRouterProps {
   onOpenConversation: (conversationId: string) => void;
@@ -24,41 +25,57 @@ const AnalystRouter: React.FC<AnalystRouterProps> = ({
 }) => {
   const { currentPath } = useRouter();
 
+  const renderWithSuspense = (element: React.ReactNode) => (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[35vh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-transparent" />
+        </div>
+      }
+    >
+      {element}
+    </Suspense>
+  );
+
   // Extract the route from the path (remove /analysts prefix)
   const route = currentPath.replace('/analysts', '');
 
   // Handle project details route with ID parameter
   if (route.startsWith('/projects/') && route !== '/projects') {
     const projectId = route.split('/')[2];
-    return <ProjectManagement onOpenConversation={onOpenConversation} selectedProjectId={projectId} />;
+    return renderWithSuspense(
+      <ProjectManagement onOpenConversation={onOpenConversation} selectedProjectId={projectId} />
+    );
   }
 
   if (route.startsWith('/creators/') && route !== '/creators') {
-    return <CreatorProfilePage />;
+    return renderWithSuspense(<CreatorProfilePage />);
   }
   
   switch (route) {
     case '/overview':
-      return <AnalystOverview key={route} />;
+      return renderWithSuspense(<AnalystOverview key={route} />);
     case '/project-dashboard':
-      return <EnhancedProjectDashboard key={route} />;
+      return renderWithSuspense(<EnhancedProjectDashboard key={route} />);
     case '/opportunities':
-      return <OpportunityManagement key={route} />;
+      return renderWithSuspense(<OpportunityManagement key={route} />);
     case '/stages':
-      return <OpportunityStagesManagementWrapper key={route} />;
+      return renderWithSuspense(<OpportunityStagesManagementWrapper key={route} />);
     case '/projects':
-      return <ProjectManagement key={route} onOpenConversation={onOpenConversation} />;
+      return renderWithSuspense(<ProjectManagement key={route} onOpenConversation={onOpenConversation} />);
     case '/deliverables':
-      return <EnhancedDeliverableManagement key={route} />;
+      return renderWithSuspense(<EnhancedDeliverableManagement key={route} />);
     case '/creators':
-      return <CreatorsList key={route} onOpenConversation={onOpenConversation} />;
+      return renderWithSuspense(<CreatorsList key={route} onOpenConversation={onOpenConversation} />);
     case '/messages':
-      return <AnalystMessages key={route} selectedConversationId={selectedConversationId} onBackToList={onBackToList} />;
+      return renderWithSuspense(
+        <AnalystMessages key={route} selectedConversationId={selectedConversationId} onBackToList={onBackToList} />
+      );
     case '/settings':
     case '/profile':
-      return <AnalystAccountSettings key={route} />;
+      return renderWithSuspense(<AnalystAccountSettings key={route} />);
     default:
-      return <AnalystOverview key={route} />;
+      return renderWithSuspense(<AnalystOverview key={route} />);
   }
 };
 

@@ -1,20 +1,26 @@
-import { useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { LayoutDashboard, Target, MessageCircle, GraduationCap, User, HelpCircle, Lock, Folder } from 'lucide-react';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './hooks/useAuth';
 import { AnalystAuthProvider, useAnalystAuth } from './contexts/AnalystAuthContext';
 import { useRouter } from './hooks/useRouter';
 import { supabase } from './lib/supabase';
-import CreatorRouter from './components/creator/CreatorRouter';
-import CreatorOnboarding from './components/CreatorOnboarding';
-import GlobalSearch from './components/GlobalSearch';
-import NotificationDropdown from './components/NotificationDropdown';
+const CreatorRouter = lazy(() => import('./components/creator/CreatorRouter'));
+const CreatorOnboarding = lazy(() => import('./components/CreatorOnboarding'));
+const GlobalSearch = lazy(() => import('./components/GlobalSearch'));
+const NotificationDropdown = lazy(() => import('./components/NotificationDropdown'));
 import Avatar from './components/common/Avatar';
-import CreatorLoginPage from './components/auth/CreatorLoginPage';
-import AnalystLoginPage from './components/auth/AnalystLoginPage';
-import EmailConfirmationPage from './components/auth/EmailConfirmationPage';
-import AnalystDashboard from './components/analyst/AnalystDashboard';
-import LandingPage from './components/LandingPage';
+const CreatorLoginPage = lazy(() => import('./components/auth/CreatorLoginPage'));
+const AnalystLoginPage = lazy(() => import('./components/auth/AnalystLoginPage'));
+const EmailConfirmationPage = lazy(() => import('./components/auth/EmailConfirmationPage'));
+const AnalystDashboard = lazy(() => import('./components/analyst/AnalystDashboard'));
+const LandingPage = lazy(() => import('./components/LandingPage'));
+
+const RouteFallback = () => (
+  <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
+    <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/25 border-t-transparent" />
+  </div>
+);
 
 function AnalystApp() {
   const { profile, loading } = useAnalystAuth();
@@ -47,7 +53,11 @@ function AnalystApp() {
 
   // Se não tem perfil, mostrar página de login de analistas (não redirecionar)
   if (!profile) {
-    return <AnalystLoginPage />;
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <AnalystLoginPage />
+      </Suspense>
+    );
   }
 
   return (
@@ -189,12 +199,14 @@ function CreatorApp() {
   // Verificar se precisa completar onboarding
   if (profile && !profile.onboarding_completed) {
     return (
-      <CreatorOnboarding 
-        onComplete={() => {
-          // Recarregar perfil após completar onboarding
-          window.location.reload();
-        }} 
-      />
+      <Suspense fallback={<RouteFallback />}>
+        <CreatorOnboarding 
+          onComplete={() => {
+            // Recarregar perfil após completar onboarding
+            window.location.reload();
+          }} 
+        />
+      </Suspense>
     );
   }
 
@@ -442,7 +454,9 @@ function App() {
   if (currentPath === '/login/creators') {
     return (
       <AuthProvider>
-        <CreatorLoginPage />
+        <Suspense fallback={<RouteFallback />}>
+          <CreatorLoginPage />
+        </Suspense>
       </AuthProvider>
     );
   }
@@ -450,26 +464,38 @@ function App() {
   if (currentPath === '/login/analysts') {
     return (
       <AnalystAuthProvider>
-        <AnalystLoginPage />
+        <Suspense fallback={<RouteFallback />}>
+          <AnalystLoginPage />
+        </Suspense>
       </AnalystAuthProvider>
     );
   }
 
   // Handle generic auth routes
   if (currentPath === '/auth/email-confirmed') {
-    return <EmailConfirmationPage />;
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <EmailConfirmationPage />
+      </Suspense>
+    );
   }
 
   // Handle root route
   if (currentPath === '/') {
-    return <LandingPage />;
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <LandingPage />
+      </Suspense>
+    );
   }
 
   // Handle analyst routes
   if (currentPath.startsWith('/analysts')) {
     return (
       <AnalystAuthProvider>
-        <AnalystApp />
+        <Suspense fallback={<RouteFallback />}>
+          <AnalystApp />
+        </Suspense>
       </AnalystAuthProvider>
     );
   }
@@ -478,13 +504,19 @@ function App() {
   if (currentPath.startsWith('/creators')) {
     return (
       <AuthProvider>
-        <CreatorApp />
+        <Suspense fallback={<RouteFallback />}>
+          <CreatorApp />
+        </Suspense>
       </AuthProvider>
     );
   }
 
   // Default fallback to landing page for any unmatched route
-  return <LandingPage />;
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <LandingPage />
+    </Suspense>
+  );
 }
 
 export default App;
