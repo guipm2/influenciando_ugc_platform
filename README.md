@@ -172,6 +172,10 @@ npm run preview      # Preview do build de produção
 npm run lint         # Executa ESLint
 ```
 
+## ✅ Operação de Produção
+
+- Guia de go-live na Vercel: [docs/GO_LIVE_VERCEL.md](docs/GO_LIVE_VERCEL.md)
+
 ## 📊 Funcionalidades Avançadas
 
 ### 🎯 Sistema de Prazos Inteligente
